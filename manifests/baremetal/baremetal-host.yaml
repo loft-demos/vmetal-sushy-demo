@@ -1,0 +1,44 @@
+# baremetal-host.yaml — BareMetalHost template for vmetal-sushy-demo
+#
+# This is a TEMPLATE. Use hack/generate-bmh.sh to produce per-VM
+# BareMetalHost resources with correct UUIDs and MACs filled in from
+# configs/vm-inventory.txt.
+#
+# If applying manually:
+#   1. Replace HOST_IP with the provisioning bridge IP (default: 172.22.0.1).
+#   2. Replace VM-UUID with the libvirt domain UUID:
+#        sudo virsh domuuid vmetal-small-1
+#   3. Replace the bootMACAddress with the VM's NIC MAC:
+#        sudo virsh domiflist vmetal-small-1
+#   4. Adjust labels to match the nodeType selector in node-provider.yaml.
+#
+# Namespace must match the Metal3 namespace in the NodeProvider (metal3-system).
+#
+# Reference:
+#   https://www.vcluster.com/docs/platform/administer/bare-metal/overview
+
+apiVersion: metal3.io/v1alpha1
+kind: BareMetalHost
+metadata:
+  name: vmetal-small-1   # <-- one per VM
+  namespace: metal3-system
+  labels:
+    demo: vmetal
+    vmetal-size: small   # <-- "small" or "large"; must match nodeType selector
+spec:
+  bmc:
+    # Redfish address format: redfish://<host>:<port>/redfish/v1/Systems/<uuid>
+    # HOST_IP is the provisioning bridge address (172.22.0.1 by default).
+    # VM-UUID is the libvirt domain UUID shown by: sudo virsh domuuid <vm-name>
+    address: redfish://HOST_IP:8000/redfish/v1/Systems/VM-UUID
+
+    # Secret containing BMC username and password (see bmc-secret.yaml).
+    credentialsName: vmetal-small-1-bmc-creds
+
+    # Required for plain HTTP sushy-tools endpoint (no TLS in local demo).
+    disableCertificateVerification: true
+
+  # MAC address of the VM NIC connected to the provisioning bridge.
+  # Used by Ironic/DHCP to identify which machine is PXE-booting.
+  # Get with: sudo virsh domiflist <vm-name>
+  bootMACAddress: "52:54:00:aa:00:00"   # <-- replace with actual MAC

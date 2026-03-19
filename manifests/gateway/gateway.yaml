@@ -1,0 +1,29 @@
+# gateway.yaml — the single demo Gateway
+#
+# One Gateway gets the MetalLB IP (GATEWAY_IP). Its listener accepts any
+# hostname matching *.VDEMO_DOMAIN and allows HTTPRoutes from all namespaces
+# to attach — so each service (vCP, Argo CD, etc.) can define its own
+# HTTPRoute in its own namespace without touching this file.
+#
+# Applied by install-vcluster.sh with __VDEMO_DOMAIN__ substituted from .env.
+
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: demo-gateway
+  namespace: envoy-gateway-system
+spec:
+  gatewayClassName: envoy
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      # Wildcard hostname: accept any subdomain of VDEMO_DOMAIN.
+      # Each HTTPRoute specifies the exact hostname it handles.
+      hostname: "*.VDEMO_DOMAIN_PLACEHOLDER"
+      allowedRoutes:
+        # Allow HTTPRoutes from any namespace to attach to this Gateway.
+        # This is what makes it easy to add new services (Argo CD, Grafana, etc.)
+        # without modifying the Gateway itself.
+        namespaces:
+          from: All

@@ -1,0 +1,85 @@
+# node-provider.yaml — Metal3 NodeProvider for the vmetal-sushy-demo
+#
+# This resource is applied to vCluster Platform (not to a workload cluster).
+# It tells vMetal to deploy and manage Metal3, Ironic, DHCP, and Multus
+# as a provider on the connected host cluster.
+#
+# Before applying:
+#   1. Ensure the host cluster is connected to vCluster Platform and that
+#      the cluster name below matches the name shown in the Platform UI.
+#   2. Adjust the DHCP vip/bridge values if your provisioning network
+#      differs from the defaults (172.22.0.0/24 / br-provision).
+#
+# Apply with:
+#   kubectl apply -f manifests/platform/node-provider.yaml
+#
+# Reference:
+#   https://www.vcluster.com/docs/platform/administer/node-providers/metal3
+
+apiVersion: management.loft.sh/v1
+kind: NodeProvider
+metadata:
+  name: metal3-provider
+spec:
+  displayName: "vMetal Demo - Metal3 Provider"
+
+  metal3:
+    # clusterRef identifies the connected host cluster where Metal3 and Ironic
+    # will be deployed. Update `cluster` to match the name of the connected
+    # cluster as it appears in vCluster Platform.
+    clusterRef:
+      cluster: local         # <-- update to your connected cluster name
+      namespace: metal3-system
+
+    deploy:
+      # Multus CNI is required so Ironic can attach network interfaces
+      # directly to the provisioning bridge.
+      multus:
+        enabled: true
+        helmValues: |
+          namespace: kube-system
+
+      # Metal3 and Ironic handle PXE boot, hardware inspection, and OS
+      # provisioning. These run as platform-managed components; you do not
+      # need to install them manually.
+      metal3:
+        enabled: true
+        helmValues: |
+          ironic:
+            image:
+              tag: release-32.0
+
+      # The DHCP server is deployed by the provider and attached to the
+      # provisioning bridge via a Multus NetworkAttachmentDefinition.
+      # vip must be an unused IP on the provisioning subnet.
+      # bridge must match the bridge name created by create-bridges.sh.
+      dhcp:
+        enabled: true
+        helmValues: |
+          networkAttachmentDefinition:
+            vip: 172.22.0.2/24
+            config: |
+              {
+                "cniVersion": "0.3.1",
+                "type": "bridge",
+                "bridge": "br-provision",
+                "ipam": {}
+              }
+
+    # nodeTypes define classes of bare-metal machines the provider can claim.
+    # The selector.matchLabels must match the labels on BareMetalHost resources
+    # (see manifests/baremetal/).
+    nodeTypes:
+      - name: small-node
+        bareMetalHosts:
+          selector:
+            matchLabels:
+              demo: vmetal
+              vmetal-size: small
+
+      - name: large-node
+        bareMetalHosts:
+          selector:
+            matchLabels:
+              demo: vmetal
+              vmetal-size: large

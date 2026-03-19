@@ -1,0 +1,96 @@
+# vcluster.yaml — vCluster Standalone configuration for vmetal-sushy-demo
+#
+# This file is a TEMPLATE. install-vcluster.sh substitutes the __PLACEHOLDERS__
+# from .env before passing it to the standalone install script.
+#
+# Placeholders:
+#   __K8S_VERSION__              — from K8S_VERSION
+#   __VCP_PLATFORM_VERSION__     — from VCP_PLATFORM_VERSION
+#   __VCP_LICENSE_TOKEN__        — from VCP_LICENSE_TOKEN
+#   __VCP_LOFT_HOST__            — from VCP_LOFT_HOST  (e.g. vcp.vdemo.local)
+#   __VDEMO_DOMAIN__             — from VDEMO_DOMAIN   (e.g. vdemo.local)
+#   __METALLB_IP_RANGE__         — from METALLB_IP_RANGE
+#   __ENVOY_GATEWAY_VERSION__    — from ENVOY_GATEWAY_VERSION
+#
+# The docker nodes list is injected by install-vcluster.sh to replace the
+# single placeholder entry below.
+
+controlPlane:
+  distro:
+    k8s:
+      image:
+        tag: __K8S_VERSION__
+
+experimental:
+  # docker: is a valid vCluster Standalone field for Docker-based worker nodes.
+  # The IDE schema validator flags it as unknown — this is a false positive;
+  # the field works correctly at runtime.
+  # The placeholder entry is replaced by install-vcluster.sh with one entry
+  # per VCP_DOCKER_NODE_COUNT before the config is passed to the install script.
+  docker:
+    nodes:
+      - name: node-placeholder
+
+  deploy:
+    vcluster:
+      helm:
+        # MetalLB assigns a real LAN IP to LoadBalancer services.
+        # The Gateway gets this IP — all *.VDEMO_DOMAIN traffic arrives here.
+        # The IPAddressPool and L2Advertisement CRs are applied post-install
+        # by install-vcluster.sh once the MetalLB CRDs exist.
+        - chart:
+            name: metallb
+            repo: https://metallb.github.io/metallb
+            version: 0.14.9
+          release:
+            name: metallb
+            namespace: metallb-system
+          timeout: 5m
+          values: ""
+
+        # Envoy Gateway — Gateway API implementation.
+        # Installs the Gateway API CRDs and the Envoy Gateway controller.
+        # The GatewayClass, Gateway (*.VDEMO_DOMAIN listener), and HTTPRoutes
+        # are applied post-install by install-vcluster.sh.
+        - chart:
+            name: gateway
+            repo: https://charts.envoyproxy.io
+            version: __ENVOY_GATEWAY_VERSION__
+          release:
+            name: envoy-gateway
+            namespace: envoy-gateway-system
+          timeout: 5m
+          values: ""
+
+        # vCluster Platform — Scale tier, deployed via Helm inside the cluster.
+        # Routes through the Gateway at vcp.VDEMO_DOMAIN.
+        - chart:
+            name: vcluster-platform
+            repo: https://charts.loft.sh/
+            version: __VCP_PLATFORM_VERSION__
+          release:
+            name: vcluster-platform
+            namespace: vcluster-platform
+          timeout: 15m
+          values: |-
+            env:
+              LICENSE_TOKEN: __VCP_LICENSE_TOKEN__
+
+            # ClusterIP — the Gateway handles external exposure.
+            service:
+              type: ClusterIP
+
+            ingress:
+              enabled: false
+
+            config:
+              loftHost: __VCP_LOFT_HOST__
+              costControl:
+                enabled: false
+              imageBuilder:
+                enabled: false
+              uiSettings:
+                externalURLs:
+                  allow:
+                    - vcluster
+                    - featurebase
