@@ -31,9 +31,8 @@ spec:
     user: admin
   templateRef:
     name: vmetal-template
-    version: 1.0.x
   clusterRef:
     cluster: loft-cluster
   parameters: |
     kubernetesVersion: v1.34.1
-    nodeCount: "1"
+    cpuLimit: "3"

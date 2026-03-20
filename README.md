@@ -258,7 +258,7 @@ kubectl -n metal3-system get baremetalhost -w
 
 ### 8. Cache the OS image locally
 
-The IPA ramdisk running inside provisioning VMs has no DNS or internet access — it is isolated on the provisioning bridge (`172.22.0.0/24`). The OS image must be served from the host so Ironic can reach it. Caching it locally also cuts provisioning time from 8+ minutes to ~40 seconds.
+The IPA ramdisk running inside provisioning VMs has no DNS or internet access — it is isolated on the provisioning bridge (`172.22.0.0/24`). The OS image must be served from the host so Ironic can reach it. Caching it locally also cuts provisioning time to ~40 seconds.
 
 ```bash
 bash scripts/cache-os-image.sh

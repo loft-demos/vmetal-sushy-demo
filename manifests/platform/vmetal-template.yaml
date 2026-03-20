@@ -30,7 +30,7 @@ metadata:
 spec:
   displayName: "vMetal — Bare Metal Private Nodes"
   description: >
-    vCluster backed by real bare metal nodes provisioned on demand via the
+    vCluster backed by bare metal nodes provisioned on demand via the
     Metal3 NodeProvider. Nodes are claimed from available BareMetalHosts,
     written with Ubuntu 24.04, and joined as workers automatically.
 
@@ -46,12 +46,10 @@ spec:
           enabled: true
           autoNodes:
             - provider: metal3-provider
-              static:
-                - name: small-nodes
-                  quantity: {{ .Values.nodeCount }}
-                  nodeTypeSelector:
-                    - property: vcluster.com/node-type
-                      value: small-node
+              dynamic:
+                - name: bm-node-pool-1
+                  limits:
+                    cpu: '{{ .Values.cpuLimit }}'
         networking:
           podCIDR: 10.64.0.0/16
           serviceCIDR: 10.128.0.0/16
@@ -63,9 +61,6 @@ spec:
           distro:
             k8s:
               version: "{{ .Values.kubernetesVersion }}"
-
-    clusterRef:
-      cluster: loft-cluster
 
   # ---------------------------------------------------------------------------
   # Parameters — surfaced in the vCluster Platform UI and passed to helm values
@@ -82,16 +77,12 @@ spec:
         - v1.34.1
         - v1.35.0
 
-    - variable: nodeCount
-      label: Node Count
+    - variable: cpuLimit
+      label: CPU Limit
       description: >
-        Number of bare metal worker nodes to provision via Metal3.
-        Each node claims one available BareMetalHost matching 'small-node'.
-      defaultValue: "1"
+        Number of bare metal worker nodes CPUs to allow to be provisioned via Metal3.
+      defaultValue: "2"
       options:
-        - "1"
         - "2"
         - "3"
-
-  versions:
-    - version: 1.0.0
+        - "5"
