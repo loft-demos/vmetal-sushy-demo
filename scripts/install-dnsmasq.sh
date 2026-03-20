@@ -91,11 +91,12 @@ no-hosts
 EOF
 
 # ---------------------------------------------------------------------------
-# Ensure systemd-resolved stub is NOT on the LAN IP
-# (it should only be on 127.0.0.53, which we're not touching)
+# Ensure nothing OTHER than dnsmasq is on the LAN IP port 53.
+# dnsmasq itself holding the port is fine — we're about to restart it with our config.
+# systemd-resolved only ever binds to 127.0.0.53/127.0.0.54, not the LAN IP.
 # ---------------------------------------------------------------------------
-if ss -lnup 2>/dev/null | grep -q "${LAN_IP}:53"; then
-  die "Port 53 is already in use on ${LAN_IP}. Check what process is listening:\n  sudo ss -lnup | grep :53"
+if sudo ss -lnup 2>/dev/null | grep "${LAN_IP}:53" | grep -qv "dnsmasq"; then
+  die "Port 53 is already in use on ${LAN_IP} by a non-dnsmasq process. Check: sudo ss -lnup | grep :53"
 fi
 
 # ---------------------------------------------------------------------------

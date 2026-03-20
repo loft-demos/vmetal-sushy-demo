@@ -1,0 +1,97 @@
+# vmetal-template.yaml — VirtualClusterTemplate for bare metal private nodes
+#
+# Parameterized template that provisions a vCluster backed by real bare metal
+# nodes via the metal3-provider NodeProvider. Workers are claimed from available
+# BareMetalHosts matching the 'small-node' node type.
+#
+# Parameters:
+#   kubernetesVersion — control plane K8s version; update to trigger an upgrade
+#   nodeCount         — number of bare metal worker nodes to provision (1, 2, or 3)
+#
+# Apply with:
+#   kubectl apply -f manifests/platform/vmetal-template.yaml
+#
+# Then create a VirtualClusterInstance that references this template:
+#   kubectl apply -f manifests/platform/vcluster-vmetal.yaml
+#
+# Upgrade demo:
+#   Edit vcluster-vmetal.yaml and bump kubernetesVersion (e.g. v1.34.1 → v1.35.0),
+#   then re-apply. vCluster Platform re-renders the helm release and performs a
+#   rolling control plane upgrade. The bare metal node's kubelet is managed
+#   separately by the NodeClaim reprovisioning cycle.
+#
+# Reference:
+#   https://www.vcluster.com/docs/platform/administer/node-providers/metal3
+
+apiVersion: management.loft.sh/v1
+kind: VirtualClusterTemplate
+metadata:
+  name: vmetal-template
+spec:
+  displayName: "vMetal — Bare Metal Private Nodes"
+  description: >
+    vCluster backed by real bare metal nodes provisioned on demand via the
+    Metal3 NodeProvider. Nodes are claimed from available BareMetalHosts,
+    written with Ubuntu 24.04, and joined as workers automatically.
+
+  owner:
+    team: loft-admins
+
+  template:
+    helmRelease:
+      chart:
+        version: 0.33.0
+      values: |
+        privateNodes:
+          enabled: true
+          autoNodes:
+            - provider: metal3-provider
+              static:
+                - name: small-nodes
+                  quantity: {{ .Values.nodeCount }}
+                  nodeTypeSelector:
+                    - property: vcluster.com/node-type
+                      value: small-node
+        networking:
+          podCIDR: 10.64.0.0/16
+          serviceCIDR: 10.128.0.0/16
+        controlPlane:
+          backingStore:
+            etcd:
+              embedded:
+                enabled: true
+          distro:
+            k8s:
+              version: "{{ .Values.kubernetesVersion }}"
+
+    clusterRef:
+      cluster: loft-cluster
+
+  # ---------------------------------------------------------------------------
+  # Parameters — surfaced in the vCluster Platform UI and passed to helm values
+  # ---------------------------------------------------------------------------
+  parameters:
+    - variable: kubernetesVersion
+      label: Kubernetes Version
+      description: >
+        Control plane Kubernetes version. Updating this value triggers a
+        rolling upgrade of the vCluster control plane. The bare metal node
+        kubelet is re-provisioned separately via the NodeClaim lifecycle.
+      defaultValue: v1.34.1
+      options:
+        - v1.34.1
+        - v1.35.0
+
+    - variable: nodeCount
+      label: Node Count
+      description: >
+        Number of bare metal worker nodes to provision via Metal3.
+        Each node claims one available BareMetalHost matching 'small-node'.
+      defaultValue: "1"
+      options:
+        - "1"
+        - "2"
+        - "3"
+
+  versions:
+    - version: 1.0.0

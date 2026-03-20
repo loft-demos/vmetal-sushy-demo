@@ -89,8 +89,13 @@ fi
 if [[ "${KEEP_BRIDGE}" == "false" ]]; then
   if ip link show "${PROVISION_BRIDGE}" &>/dev/null; then
     log "Removing bridge '${PROVISION_BRIDGE}'..."
-    sudo nmcli conn delete "${PROVISION_BRIDGE}" 2>/dev/null || \
-      warn "nmcli could not delete the connection; the bridge interface may still exist"
+    sudo ip link set "${PROVISION_BRIDGE}" down 2>/dev/null || true
+    sudo ip link delete "${PROVISION_BRIDGE}" type bridge 2>/dev/null || \
+      warn "Could not delete bridge interface — it may already be gone"
+    sudo rm -f \
+      "/etc/systemd/network/10-${PROVISION_BRIDGE}.netdev" \
+      "/etc/systemd/network/10-${PROVISION_BRIDGE}.network"
+    sudo systemctl reload-or-restart systemd-networkd 2>/dev/null || true
   else
     log "Bridge '${PROVISION_BRIDGE}' does not exist — nothing to remove."
   fi

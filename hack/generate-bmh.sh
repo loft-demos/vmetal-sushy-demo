@@ -27,7 +27,11 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BMC_USERNAME="${BMC_USERNAME:-admin}"
 BMC_PASSWORD="${BMC_PASSWORD:-password}"
 PROVISION_IP="${PROVISION_IP:-172.22.0.1}"
+PROVISION_CIDR="${PROVISION_CIDR:-172.22.0.0/24}"
+PROVISION_GATEWAY="${PROVISION_GATEWAY:-172.22.0.1}"
 SUSHY_PORT="${SUSHY_PORT:-8000}"
+# First assignable VM IP — .1 is the bridge, .2 is the DHCP VIP
+VM_IP_START="${VM_IP_START:-172.22.0.11}"
 
 if [[ -f "${REPO_ROOT}/.env" ]]; then
   # shellcheck source=/dev/null
@@ -44,16 +48,26 @@ Run scripts/create-vms.sh first to generate it."
 # ---------------------------------------------------------------------------
 # Emit YAML for each VM in the inventory
 # ---------------------------------------------------------------------------
+# Derive the prefix octets and starting last octet from VM_IP_START
+ip_prefix="${VM_IP_START%.*}"   # e.g. 172.22.0
+ip_last="${VM_IP_START##*.}"    # e.g. 11
+prefix_len="${PROVISION_CIDR##*/}"  # e.g. 24
+ip_index=0
+
 while read -r line; do
   # Skip comments and blank lines
   [[ "${line}" =~ ^#.*$ || -z "${line}" ]] && continue
 
   read -r vm_name uuid mac profile <<< "${line}"
 
+  # Assign sequential IP from provisioning subnet
+  vm_ip="${ip_prefix}.$((ip_last + ip_index))"
+  ip_index=$((ip_index + 1))
+
   # Kubernetes resource names must be lowercase DNS labels
   k8s_name="${vm_name}"
   secret_name="${k8s_name}-bmc-creds"
-  redfish_addr="redfish://${PROVISION_IP}:${SUSHY_PORT}/redfish/v1/Systems/${uuid}"
+  redfish_addr="redfish+http://${PROVISION_IP}:${SUSHY_PORT}/redfish/v1/Systems/${uuid}"
 
   cat <<EOF
 ---
@@ -77,12 +91,20 @@ metadata:
   labels:
     demo: vmetal
     vmetal-size: ${profile}
+  annotations:
+    metal3.vcluster.com/ip-address: "${vm_ip}/${prefix_len}"
+    metal3.vcluster.com/gateway: "${PROVISION_GATEWAY}"
+    metal3.vcluster.com/dns-servers: "8.8.8.8,1.1.1.1"
 spec:
+  online: true
+  automatedCleaningMode: metadata
   bmc:
     address: ${redfish_addr}
     credentialsName: ${secret_name}
     disableCertificateVerification: true
   bootMACAddress: "${mac}"
+  rootDeviceHints:
+    deviceName: /dev/vda    # virtio block device used by KVM/QEMU VMs
 EOF
 
 done < "${INVENTORY_FILE}"

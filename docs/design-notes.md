@@ -19,13 +19,98 @@ Practical reasons to prefer Sushy Tools for this demo:
 
 ---
 
-## Why plain HTTP for Sushy Tools
+## Why plain HTTP for Sushy Tools (and `redfish+http://` not `redfish://`)
 
 Generating and managing TLS certificates adds complexity without benefit in a single-machine local demo. All traffic between Ironic and Sushy Tools stays on the local host (or within the cluster's pod network, which routes back to the host bridge IP). There is no external exposure.
 
-The tradeoff is captured in the BareMetalHost manifest as `disableCertificateVerification: true`, which tells Ironic not to validate the (non-existent) certificate. This is the correct knob for this use case.
+The tradeoff is captured in the BareMetalHost manifest as `disableCertificateVerification: true`, which tells Ironic not to validate the (non-existent) certificate.
+
+**Critical**: The BMC address scheme in BareMetalHost must be `redfish+http://`, not `redfish://`. The bare `redfish://` scheme forces HTTPS and causes an immediate SSL handshake failure against sushy-tools' plain HTTP endpoint. `hack/generate-bmh.sh` uses `redfish+http://` automatically.
 
 If you want TLS for a more realistic demo, generate a self-signed cert and set `SUSHY_EMULATOR_SSL_CERT` / `SUSHY_EMULATOR_SSL_KEY` in `configs/sushy-tools.conf`, and remove `disableCertificateVerification` from the BareMetalHost resources.
+
+---
+
+## Why the OS image is served locally
+
+The IPA (Ironic Python Agent) ramdisk that Ironic boots on each bare metal VM is isolated to the provisioning bridge (`172.22.0.0/24`). It has no DNS resolver and no route to the internet — by design. If the `OSImage` URL points at an external host (e.g. `cloud-images.ubuntu.com`), the IPA agent fails immediately with:
+
+```
+NameResolutionError: Failed to resolve 'cloud-images.ubuntu.com' ([Errno -2] Name or service not known)
+```
+
+`scripts/cache-os-image.sh` solves this by:
+1. Downloading the Ubuntu 24.04 minimal image to `/srv/os-images/` on the host
+2. Starting the `os-image-server` systemd service — a Python HTTP server on `172.22.0.1:9000`
+
+The `OSImage` resource then points at `http://172.22.0.1:9000/ubuntu-24.04-minimal-cloudimg-amd64.img` — reachable by the IPA ramdisk over the bridge with no DNS required.
+
+Side benefit: provisioning time drops from 8+ minutes (downloading over the internet) to ~40 seconds (local disk read over a virtual bridge).
+
+---
+
+## NAT masquerade — why provisioned nodes need internet access and how it works
+
+The IPA ramdisk itself does not need internet access (it gets the OS image locally), but once Ubuntu is provisioned and `kubelet` starts, the node needs to:
+- Resolve hostnames (`ghcr.io`, `registry.k8s.io`, `docker.io`)
+- Pull container images for kube-proxy, CNI, and workload pods
+
+The provisioning bridge is not routed to the internet by default. `create-bridges.sh` adds:
+1. `net.ipv4.ip_forward=1` — enables the host to forward packets between interfaces
+2. iptables FORWARD rules — allows traffic between `br-provision` and the LAN interface in both directions
+3. iptables MASQUERADE — rewrites the source IP of packets leaving the provisioning subnet so the router sees the host's LAN IP
+
+**`LAN_INTERFACE` must be set correctly.** It must match the interface shown by `ip route show default`. On the MINISFORUM X1 Pro 370 this is `enp197s0`. Using the wrong interface (e.g. `enp1s0`) means the MASQUERADE rule targets an interface that isn't carrying traffic, and provisioned VMs get no internet access — causing `ImagePullBackOff` on every pod.
+
+Rules are saved via `netfilter-persistent` and survive reboots.
+
+---
+
+## rootDeviceHints — KVM virtio disks are `/dev/vda`, not `/dev/sda`
+
+KVM/QEMU VMs use the virtio block driver. The disk appears as `/dev/vda` inside the guest, not `/dev/sda`. Metal3 defaults to looking for `/dev/sda` when no `rootDeviceHints` are set, which causes provisioning to fail with:
+
+```
+No suitable device found for hints {'name': '== /dev/sda'}
+```
+
+`hack/generate-bmh.sh` sets `rootDeviceHints.deviceName: /dev/vda` on every BareMetalHost automatically. On real hardware with SATA/SAS disks, this hint would typically be `/dev/sda` or omitted.
+
+---
+
+## VirtualClusterTemplate and the upgrade demo path
+
+The demo uses a `VirtualClusterTemplate` (`manifests/platform/vmetal-template.yaml`) to parameterize bare metal vClusters. Two parameters are exposed:
+
+| Parameter | Purpose | Default | Options |
+|---|---|---|---|
+| `kubernetesVersion` | K8s control plane version | `v1.34.1` | `v1.34.1`, `v1.35.0` |
+| `nodeCount` | Number of bare metal worker nodes to claim | `1` | `1`, `2`, `3` |
+
+The template renders into a vCluster Helm release using `controlPlane.distro.k8s.version` to set the K8s version. This enables a live upgrade demo:
+
+1. Create the vCluster at `v1.34.1` (one small bare metal node)
+2. Edit `manifests/platform/vcluster-vmetal.yaml`: change `kubernetesVersion` to `v1.35.0`
+3. `kubectl apply -f manifests/platform/vcluster-vmetal.yaml`
+4. vCluster Platform re-renders the Helm release and performs a rolling control plane upgrade
+5. Watch the upgrade in the Platform UI under vmetal-demo → Status
+
+This shows that the Kubernetes version is just a parameter — the vMetal bare metal node continues running through a control plane upgrade without reprovisioning.
+
+---
+
+## cert-manager as a Metal3 dependency
+
+Metal3 uses cert-manager to issue certificates for internal webhook and admission controller endpoints. The `NodeProvider` will fail to deploy Metal3 if cert-manager CRDs are not present in the cluster.
+
+`configs/vcluster.yaml` includes cert-manager in the experimental deploy section, so `install-vcluster.sh` installs it automatically. If you install vCluster Platform by other means, install cert-manager first:
+
+```bash
+helm install cert-manager jetstack/cert-manager \
+  --namespace cert-manager --create-namespace \
+  --version v1.16.2 \
+  --set crds.enabled=true
+```
 
 ---
 

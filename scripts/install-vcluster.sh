@@ -35,8 +35,7 @@ VCP_LOFT_HOST="${VCP_LOFT_HOST:-vcp.vdemo.local}"
 VDEMO_DOMAIN="${VDEMO_DOMAIN:-vdemo.local}"
 GATEWAY_IP="${GATEWAY_IP:-}"
 METALLB_IP_RANGE="${METALLB_IP_RANGE:-}"
-ENVOY_GATEWAY_VERSION="${ENVOY_GATEWAY_VERSION:-v1.3.2}"
-VCP_DOCKER_NODE_COUNT="${VCP_DOCKER_NODE_COUNT:-2}"
+TRAEFIK_VERSION="${TRAEFIK_VERSION:-39.0.6}"
 
 if [[ -f "${REPO_ROOT}/.env" ]]; then
   # shellcheck source=/dev/null
@@ -59,19 +58,11 @@ warn() { echo "[install-vcluster] WARNING: $*" >&2; }
 [[ -z "${METALLB_IP_RANGE}" ]]   && die "METALLB_IP_RANGE is not set in .env"
 [[ -z "${VDEMO_DOMAIN}" ]]       && die "VDEMO_DOMAIN is not set in .env"
 
-command -v docker  &>/dev/null || die "Docker is required for experimental.docker.nodes"
 command -v curl    &>/dev/null || die "curl is required"
-command -v python3 &>/dev/null || die "python3 is required for template rendering"
 
 # ---------------------------------------------------------------------------
 # Render vcluster.yaml
 # ---------------------------------------------------------------------------
-DOCKER_NODES_YAML=""
-for i in $(seq 1 "${VCP_DOCKER_NODE_COUNT}"); do
-  DOCKER_NODES_YAML+="      - name: node-${i}"$'\n'
-done
-DOCKER_NODES_YAML="${DOCKER_NODES_YAML%$'\n'}"
-
 TEMPLATE="${REPO_ROOT}/configs/vcluster.yaml"
 RENDERED="/tmp/vmetal-vcluster-rendered.yaml"
 
@@ -83,16 +74,8 @@ sed \
   -e "s|__VCP_LICENSE_TOKEN__|${VCP_LICENSE_TOKEN}|g" \
   -e "s|__VCP_LOFT_HOST__|${VCP_LOFT_HOST}|g" \
   -e "s|__METALLB_IP_RANGE__|${METALLB_IP_RANGE}|g" \
-  -e "s|__ENVOY_GATEWAY_VERSION__|${ENVOY_GATEWAY_VERSION}|g" \
+  -e "s|__TRAEFIK_VERSION__|${TRAEFIK_VERSION}|g" \
   "${TEMPLATE}" > "${RENDERED}"
-
-python3 - <<PYEOF
-with open("${RENDERED}", "r") as f:
-    content = f.read()
-content = content.replace("      - name: node-placeholder", """${DOCKER_NODES_YAML}""")
-with open("${RENDERED}", "w") as f:
-    f.write(content)
-PYEOF
 
 log "Rendered config: ${RENDERED}"
 
@@ -110,12 +93,11 @@ echo "====================================================================="
 echo " Installing vCluster Standalone + vCluster Platform"
 echo " K8s          : ${K8S_VERSION}"
 echo " Platform     : ${VCP_PLATFORM_VERSION} → ${VCP_LOFT_HOST}"
-echo " Gateway      : Envoy ${ENVOY_GATEWAY_VERSION} (*.${VDEMO_DOMAIN} → ${GATEWAY_IP})"
-echo " Docker nodes : ${VCP_DOCKER_NODE_COUNT}"
+echo " Gateway      : Traefik ${TRAEFIK_VERSION} (*.${VDEMO_DOMAIN} → ${GATEWAY_IP})"
 echo "====================================================================="
 echo ""
 
-curl -sfL "${INSTALL_URL}" | sh -s -- \
+curl -sfL "${INSTALL_URL}" | sudo sh -s -- \
   --vcluster-name "${VCLUSTER_NAME}" \
   --config "${RENDERED}"
 
@@ -126,10 +108,43 @@ log "Standalone install complete. Applying post-install resources..."
 # ---------------------------------------------------------------------------
 wait_for_crd() {
   local crd="$1"
-  local max=30
+  local max=90   # 90 × 2s = 3 minutes — enough for image pulls on first install
   for i in $(seq 1 "${max}"); do
     ${KC} get crd "${crd}" &>/dev/null && return 0
     [[ "${i}" -eq "${max}" ]] && die "CRD ${crd} not ready after ${max} attempts"
+    log "Waiting for CRD ${crd}... (${i}/${max})"
+    sleep 2
+  done
+}
+
+# ---------------------------------------------------------------------------
+# Helper: wait for a deployment to have at least 1 ready replica
+# ---------------------------------------------------------------------------
+wait_for_deployment() {
+  local ns="$1"
+  local deploy="$2"
+  local max=90
+  for i in $(seq 1 "${max}"); do
+    ready=$(${KC} -n "${ns}" get deployment "${deploy}" \
+      -o jsonpath='{.status.readyReplicas}' 2>/dev/null || true)
+    [[ "${ready}" =~ ^[1-9] ]] && return 0
+    [[ "${i}" -eq "${max}" ]] && die "Deployment ${ns}/${deploy} not ready after ${max} attempts"
+    log "Waiting for deployment ${ns}/${deploy}... (${i}/${max})"
+    sleep 2
+  done
+}
+
+# Wait for a service to have at least one ready endpoint (webhook is truly ready)
+wait_for_endpoints() {
+  local ns="$1"
+  local svc="$2"
+  local max=90
+  for i in $(seq 1 "${max}"); do
+    ep=$(${KC} -n "${ns}" get endpoints "${svc}" \
+      -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)
+    [[ -n "${ep}" ]] && return 0
+    [[ "${i}" -eq "${max}" ]] && die "Endpoints for ${ns}/${svc} not ready after ${max} attempts"
+    log "Waiting for endpoints ${ns}/${svc}... (${i}/${max})"
     sleep 2
   done
 }
@@ -139,6 +154,10 @@ wait_for_crd() {
 # ---------------------------------------------------------------------------
 log "Waiting for MetalLB CRDs..."
 wait_for_crd "ipaddresspools.metallb.io"
+
+log "Waiting for MetalLB webhook to be ready..."
+wait_for_deployment "metallb-system" "metallb-controller"
+wait_for_endpoints "metallb-system" "metallb-webhook-service"
 
 log "Applying MetalLB pool: ${METALLB_IP_RANGE}"
 ${KC} apply -f - <<EOF
@@ -165,8 +184,11 @@ EOF
 # ---------------------------------------------------------------------------
 # 2. GatewayClass + Gateway
 # ---------------------------------------------------------------------------
-log "Waiting for Gateway API CRDs (installed by Envoy Gateway)..."
+log "Waiting for Gateway API CRDs (installed by Traefik)..."
 wait_for_crd "gatewayclasses.gateway.networking.k8s.io"
+
+log "Waiting for Traefik controller..."
+wait_for_deployment "traefik" "traefik"
 
 log "Applying GatewayClass and Gateway (*.${VDEMO_DOMAIN})..."
 
@@ -185,9 +207,8 @@ done
 # ---------------------------------------------------------------------------
 log "Waiting for Gateway to receive IP ${GATEWAY_IP} from MetalLB..."
 for i in $(seq 1 30); do
-  gw_ip=$(${KC} -n envoy-gateway-system get svc \
-    -l "gateway.envoyproxy.io/owning-gateway-name=demo-gateway" \
-    -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+  gw_ip=$(${KC} -n traefik get svc traefik \
+    -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
   if [[ "${gw_ip}" == "${GATEWAY_IP}" ]]; then
     log "Gateway IP confirmed: ${gw_ip}"
     break
@@ -205,7 +226,7 @@ ${KC} get nodes 2>/dev/null || warn "kubectl not yet ready"
 
 echo ""
 echo "--- Gateway ---"
-${KC} -n envoy-gateway-system get gateway demo-gateway 2>/dev/null || true
+${KC} -n traefik get gateway demo-gateway 2>/dev/null || true
 
 echo ""
 echo "--- Platform pods (may still be starting) ---"

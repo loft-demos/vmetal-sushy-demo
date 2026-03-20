@@ -10,27 +10,14 @@
 #   __VCP_LOFT_HOST__            — from VCP_LOFT_HOST  (e.g. vcp.vdemo.local)
 #   __VDEMO_DOMAIN__             — from VDEMO_DOMAIN   (e.g. vdemo.local)
 #   __METALLB_IP_RANGE__         — from METALLB_IP_RANGE
-#   __ENVOY_GATEWAY_VERSION__    — from ENVOY_GATEWAY_VERSION
-#
-# The docker nodes list is injected by install-vcluster.sh to replace the
-# single placeholder entry below.
+#   __TRAEFIK_VERSION__          — from TRAEFIK_VERSION
 
 controlPlane:
   distro:
     k8s:
-      image:
-        tag: __K8S_VERSION__
+      version: __K8S_VERSION__
 
 experimental:
-  # docker: is a valid vCluster Standalone field for Docker-based worker nodes.
-  # The IDE schema validator flags it as unknown — this is a false positive;
-  # the field works correctly at runtime.
-  # The placeholder entry is replaced by install-vcluster.sh with one entry
-  # per VCP_DOCKER_NODE_COUNT before the config is passed to the install script.
-  docker:
-    nodes:
-      - name: node-placeholder
-
   deploy:
     vcluster:
       helm:
@@ -48,19 +35,36 @@ experimental:
           timeout: 5m
           values: ""
 
-        # Envoy Gateway — Gateway API implementation.
-        # Installs the Gateway API CRDs and the Envoy Gateway controller.
+        # cert-manager — required by Metal3 (Certificate + Issuer CRDs).
+        # Must be deployed before the NodeProvider attempts to install Metal3.
+        - chart:
+            name: cert-manager
+            repo: https://charts.jetstack.io
+            version: v1.16.2
+          release:
+            name: cert-manager
+            namespace: cert-manager
+          timeout: 5m
+          values: |-
+            crds:
+              enabled: true
+
+        # Traefik v3 — Gateway API implementation.
+        # Installs the Gateway API CRDs and the Traefik controller.
         # The GatewayClass, Gateway (*.VDEMO_DOMAIN listener), and HTTPRoutes
         # are applied post-install by install-vcluster.sh.
         - chart:
-            name: gateway
-            repo: https://charts.envoyproxy.io
-            version: __ENVOY_GATEWAY_VERSION__
+            name: traefik
+            repo: https://helm.traefik.io/traefik
+            version: __TRAEFIK_VERSION__
           release:
-            name: envoy-gateway
-            namespace: envoy-gateway-system
+            name: traefik
+            namespace: traefik
           timeout: 5m
-          values: ""
+          values: |-
+            providers:
+              kubernetesGateway:
+                enabled: true
 
         # vCluster Platform — Scale tier, deployed via Helm inside the cluster.
         # Routes through the Gateway at vcp.VDEMO_DOMAIN.

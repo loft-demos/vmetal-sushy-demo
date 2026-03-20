@@ -3,7 +3,7 @@
 # Routes vcp.VDEMO_DOMAIN → the vcluster-platform ClusterIP service.
 # Lives in the vcluster-platform namespace alongside the service it routes to.
 #
-# Applied by install-vcluster.sh with __VDEMO_DOMAIN__ substituted from .env.
+# Applied by install-vcluster.sh with VDEMO_DOMAIN_PLACEHOLDER substituted from .env.
 #
 # To add another service (e.g. Argo CD), create a similar HTTPRoute in that
 # service's namespace — no changes to the Gateway needed.
@@ -16,10 +16,10 @@ metadata:
 spec:
   parentRefs:
     - name: demo-gateway
-      namespace: envoy-gateway-system
+      namespace: traefik
   hostnames:
     - "vcp.VDEMO_DOMAIN_PLACEHOLDER"
   rules:
     - backendRefs:
-        - name: vcluster-platform
+        - name: loft        # vcluster-platform chart uses legacy "loft" service name
           port: 80

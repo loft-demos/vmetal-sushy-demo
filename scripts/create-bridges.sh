@@ -57,27 +57,108 @@ if ip link show "${PROVISION_BRIDGE}" &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Create the bridge using nmcli
+# 3. Create the bridge using ip commands (works without NetworkManager)
 # ---------------------------------------------------------------------------
 log "Creating bridge '${PROVISION_BRIDGE}' with IP ${PROVISION_IP}/24 (STP disabled)..."
 
-sudo nmcli conn add \
-  ifname "${PROVISION_BRIDGE}" \
-  type bridge \
-  con-name "${PROVISION_BRIDGE}" \
-  bridge.stp no \
-  ipv4.method manual \
-  ipv4.addresses "${PROVISION_IP}/24" \
-  ipv6.method disabled
+sudo ip link add name "${PROVISION_BRIDGE}" type bridge
+sudo ip link set "${PROVISION_BRIDGE}" type bridge stp_state 0
+sudo ip addr add "${PROVISION_IP}/24" dev "${PROVISION_BRIDGE}"
+sudo ip link set "${PROVISION_BRIDGE}" up
 
-log "Bringing up '${PROVISION_BRIDGE}'..."
-sudo nmcli conn up "${PROVISION_BRIDGE}"
+# Make the bridge survive a reboot via a systemd-networkd drop-in.
+# This works on Ubuntu 24.04 server (networkd backend) without NetworkManager.
+NETDEV_FILE="/etc/systemd/network/10-${PROVISION_BRIDGE}.netdev"
+NETWORK_FILE="/etc/systemd/network/10-${PROVISION_BRIDGE}.network"
+
+if [[ ! -f "${NETDEV_FILE}" ]]; then
+  log "Writing ${NETDEV_FILE} for persistence across reboots..."
+  sudo tee "${NETDEV_FILE}" > /dev/null <<EOF
+[NetDev]
+Name=${PROVISION_BRIDGE}
+Kind=bridge
+
+[Bridge]
+STP=no
+EOF
+fi
+
+if [[ ! -f "${NETWORK_FILE}" ]]; then
+  log "Writing ${NETWORK_FILE} for persistence across reboots..."
+  sudo tee "${NETWORK_FILE}" > /dev/null <<EOF
+[Match]
+Name=${PROVISION_BRIDGE}
+
+[Network]
+Address=${PROVISION_IP}/24
+LinkLocalAddressing=no
+IPv6AcceptRA=no
+EOF
+fi
+
+# Reload networkd so it is aware of the new config (the bridge is already up)
+sudo systemctl reload-or-restart systemd-networkd 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
-# 4. Verify
+# 4. Enable IP forwarding and NAT so provisioning VMs can reach the internet
+#
+# VMs on the provisioning bridge get DNS servers (8.8.8.8/1.1.1.1) from the
+# vCP DHCP proxy, but their queries go nowhere without masquerade. IP forwarding
+# + NAT lets them reach the internet through the host's LAN interface for:
+#   - DNS resolution
+#   - Container image pulls (ghcr.io, docker.io, registry.k8s.io, etc.)
+# ---------------------------------------------------------------------------
+LAN_INTERFACE="${LAN_INTERFACE:-enp1s0}"
+
+log "Enabling IP forwarding..."
+sudo sysctl -w net.ipv4.ip_forward=1
+SYSCTL_CONF="/etc/sysctl.d/99-vmetal-forward.conf"
+if [[ ! -f "${SYSCTL_CONF}" ]]; then
+  echo "net.ipv4.ip_forward=1" | sudo tee "${SYSCTL_CONF}" > /dev/null
+fi
+
+log "Adding FORWARD rules for ${PROVISION_BRIDGE} ↔ ${LAN_INTERFACE}..."
+# Ubuntu's default FORWARD policy is DROP. Without these rules, forwarded
+# packets from the provisioning subnet are silently dropped even with MASQUERADE set.
+if ! sudo iptables -C FORWARD -i "${PROVISION_BRIDGE}" -o "${LAN_INTERFACE}" -j ACCEPT 2>/dev/null; then
+  sudo iptables -I FORWARD 1 -i "${PROVISION_BRIDGE}" -o "${LAN_INTERFACE}" -j ACCEPT
+  log "FORWARD outbound rule added."
+else
+  log "FORWARD outbound rule already present — skipping."
+fi
+if ! sudo iptables -C FORWARD -i "${LAN_INTERFACE}" -o "${PROVISION_BRIDGE}" \
+    -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null; then
+  sudo iptables -I FORWARD 2 -i "${LAN_INTERFACE}" -o "${PROVISION_BRIDGE}" \
+    -m state --state RELATED,ESTABLISHED -j ACCEPT
+  log "FORWARD inbound (established) rule added."
+else
+  log "FORWARD inbound rule already present — skipping."
+fi
+
+log "Adding NAT masquerade rule for ${PROVISION_CIDR} via ${LAN_INTERFACE}..."
+if ! sudo iptables -t nat -C POSTROUTING \
+    -s "${PROVISION_CIDR}" ! -d "${PROVISION_CIDR}" \
+    -o "${LAN_INTERFACE}" -j MASQUERADE 2>/dev/null; then
+  sudo iptables -t nat -A POSTROUTING \
+    -s "${PROVISION_CIDR}" ! -d "${PROVISION_CIDR}" \
+    -o "${LAN_INTERFACE}" -j MASQUERADE
+  log "NAT rule added."
+else
+  log "NAT rule already present — skipping."
+fi
+
+# Persist iptables rules across reboots
+if ! command -v netfilter-persistent &>/dev/null; then
+  log "Installing iptables-persistent..."
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent
+fi
+sudo netfilter-persistent save
+
+# ---------------------------------------------------------------------------
+# 5. Verify
 # ---------------------------------------------------------------------------
 if ! ip link show "${PROVISION_BRIDGE}" &>/dev/null; then
-  die "Bridge '${PROVISION_BRIDGE}' was not created. Check NetworkManager logs."
+  die "Bridge '${PROVISION_BRIDGE}' was not created."
 fi
 
 log "Bridge '${PROVISION_BRIDGE}' is up:"
@@ -89,6 +170,7 @@ echo " Provisioning bridge ready."
 echo " Bridge : ${PROVISION_BRIDGE}"
 echo " Host IP: ${PROVISION_IP}/24"
 echo " Network: ${PROVISION_CIDR}"
+echo " NAT out : ${LAN_INTERFACE} (VMs can reach internet)"
 echo ""
 echo " Do NOT start a DHCP server on this bridge."
 echo " Metal3/Ironic (deployed by vMetal) will provide DHCP."

@@ -101,20 +101,26 @@ create_vm() {
 
   log "Creating VM: ${name} (${vcpus} vCPU, ${ram_mb} MB RAM, ${disk_gb} GB disk, MAC ${mac})"
 
-  # virt-install with no install source — the VM will PXE-boot when powered on.
-  # --import requires an existing disk; we use --disk with no backing image so
-  # virt-install creates an empty qcow2. The --boot order puts network first.
+  # Pre-create an empty qcow2 disk. virt-install --import needs an existing disk
+  # file; the VM boots from network (PXE via Metal3/Ironic) so the disk starts empty.
+  if [[ ! -f "${disk_path}" ]]; then
+    sudo qemu-img create -f qcow2 "${disk_path}" "${disk_gb}G"
+  fi
+
+  # --import: skip OS install, just define the VM using the existing disk.
+  # --boot network,hd: PXE first, then fall through to disk on subsequent boots.
   sudo virt-install \
     --name "${name}" \
     --vcpus "${vcpus}" \
     --memory "${ram_mb}" \
-    --disk "path=${disk_path},size=${disk_gb},format=qcow2,bus=virtio" \
+    --disk "path=${disk_path},format=qcow2,bus=virtio" \
     --network "bridge:${PROVISION_BRIDGE},model=virtio,mac=${mac}" \
     --boot "network,hd,menu=off" \
     --os-variant "ubuntu24.04" \
     --graphics "none" \
     --console "pty,target_type=serial" \
     --noautoconsole \
+    --import \
     --noreboot
 
   log "VM '${name}' defined successfully."

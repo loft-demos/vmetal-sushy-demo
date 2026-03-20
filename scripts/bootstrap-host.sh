@@ -51,6 +51,7 @@ sudo apt-get install -y \
   virtinst \
   libvirt-dev \
   cpu-checker \
+  ovmf \
   python3 \
   python3-pip \
   python3-venv \
@@ -101,7 +102,49 @@ if command -v kvm-ok &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
-# 6. Print libvirt summary
+# 6. Install Helm (required for cert-manager and any manual chart operations)
+# ---------------------------------------------------------------------------
+if command -v helm &>/dev/null; then
+  log "Helm already installed: $(helm version --short)"
+else
+  log "Installing Helm..."
+  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+fi
+
+# ---------------------------------------------------------------------------
+# 7. OVMF symlinks — Ubuntu 24.04 ships only _4M variants; libvirt and
+#    sushy-tools expect the plain names.
+# ---------------------------------------------------------------------------
+for pair in "OVMF_VARS_4M.fd:OVMF_VARS.fd" "OVMF_CODE_4M.fd:OVMF_CODE.fd" \
+            "OVMF_CODE_4M.secboot.fd:OVMF_CODE.secboot.fd" "OVMF_VARS_4M.ms.fd:OVMF_VARS.ms.fd"; do
+  src="/usr/share/OVMF/${pair%%:*}"
+  dst="/usr/share/OVMF/${pair##*:}"
+  if [[ -e "${dst}" ]]; then
+    log "OVMF symlink already exists: ${dst} — skipping"
+  else
+    log "Creating OVMF symlink: ${dst} -> ${src}"
+    sudo ln -s "${src}" "${dst}"
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# 8. Install CNI plugins (required by Multus for Metal3 DHCP proxy)
+# ---------------------------------------------------------------------------
+CNI_PLUGINS_VERSION="${CNI_PLUGINS_VERSION:-v1.4.0}"
+CNI_BIN_DIR="/opt/cni/bin"
+
+if [[ -f "${CNI_BIN_DIR}/static" ]]; then
+  log "CNI plugins already installed at ${CNI_BIN_DIR} — skipping"
+else
+  log "Installing CNI plugins ${CNI_PLUGINS_VERSION}..."
+  sudo mkdir -p "${CNI_BIN_DIR}"
+  curl -fsSL "https://github.com/containernetworking/plugins/releases/download/${CNI_PLUGINS_VERSION}/cni-plugins-linux-amd64-${CNI_PLUGINS_VERSION}.tgz" \
+    | sudo tar xz -C "${CNI_BIN_DIR}"
+  log "CNI plugins installed (includes 'static' plugin needed by Multus)."
+fi
+
+# ---------------------------------------------------------------------------
+# 7. Print libvirt summary
 # ---------------------------------------------------------------------------
 log "--- libvirt summary ---"
 sudo virsh net-list --all

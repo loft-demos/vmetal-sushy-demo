@@ -1,0 +1,39 @@
+# vcluster-vmetal.yaml — VirtualClusterInstance backed by vmetal-template
+#
+# Creates a vCluster in the Default Project that provisions one small bare
+# metal node via the Metal3 NodeProvider, starting at Kubernetes v1.34.1.
+#
+# Apply with:
+#   kubectl apply -f manifests/platform/vmetal-template.yaml   # once
+#   kubectl apply -f manifests/platform/vcluster-vmetal.yaml
+#
+# Watch provisioning:
+#   kubectl get virtualclusterinstances -n p-default
+#   kubectl get nodeclaims -A -w
+#   kubectl get baremetalhosts -n metal3-system
+#
+# Upgrade demo — bump kubernetesVersion and re-apply:
+#   # Edit this file: kubernetesVersion: v1.35.0
+#   kubectl apply -f manifests/platform/vcluster-vmetal.yaml
+#   # vCluster Platform performs a rolling control plane upgrade.
+#   # Watch: kubectl get virtualclusterinstances -n p-default -w
+#
+# Reference:
+#   https://www.vcluster.com/docs/platform/administer/node-providers/metal3
+
+apiVersion: management.loft.sh/v1
+kind: VirtualClusterInstance
+metadata:
+  name: vmetal-demo
+  namespace: p-default
+spec:
+  owner:
+    user: admin
+  templateRef:
+    name: vmetal-template
+    version: 1.0.x
+  clusterRef:
+    cluster: loft-cluster
+  parameters: |
+    kubernetesVersion: v1.34.1
+    nodeCount: "1"

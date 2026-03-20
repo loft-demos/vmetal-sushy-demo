@@ -28,7 +28,7 @@ spec:
     # will be deployed. Update `cluster` to match the name of the connected
     # cluster as it appears in vCluster Platform.
     clusterRef:
-      cluster: local         # <-- update to your connected cluster name
+      cluster: loft-cluster
       namespace: metal3-system
 
     deploy:
@@ -76,6 +76,8 @@ spec:
             matchLabels:
               demo: vmetal
               vmetal-size: small
+        properties:
+          vcluster.com/os-image: ubuntu-noble
 
       - name: large-node
         bareMetalHosts:
@@ -83,3 +85,5 @@ spec:
             matchLabels:
               demo: vmetal
               vmetal-size: large
+        properties:
+          vcluster.com/os-image: ubuntu-noble

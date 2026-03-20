@@ -1,4 +1,6 @@
-# vmetal-sushy-demo
+![vMetal](docs/vmetal-logo.svg)
+
+# vMetal Demo with Sushy Tools
 
 This repository is a single-machine demo for **vMetal** on **vCluster Platform**, using **Sushy Tools** and **libvirt/KVM** to emulate Redfish-managed bare metal on one Ubuntu host. The point of the demo is not "Metal3 on a laptop" by itself. The point is to show that **vCluster Platform's vMetal feature** can provide and operate the bare-metal management stack while the local machine supplies fake hardware to manage.
 
@@ -58,28 +60,11 @@ This demo is developed and sized for the **MINISFORUM X1 Pro 370**:
 
 Any dedicated Ubuntu 24.04 machine with at least 32 GB RAM, KVM support, and ~200 GB of free disk will work. CPU virtualization must be enabled in BIOS/UEFI.
 
-### Create Ubuntu 24.04 USB (from macOS)
-
-Download [Ubuntu 24.04 LTS Server](https://ubuntu.com/download/server) and flash it to a USB drive:
-
-```bash
-# Find your USB device
-diskutil list
-
-# Unmount (replace disk4 with your USB disk)
-diskutil unmountDisk /dev/disk4
-
-# Flash (replace disk4 and the ISO filename as needed)
-sudo dd if=ubuntu-24.04.4-live-server-amd64.iso of=/dev/rdisk4 bs=4m status=progress
-
-diskutil eject /dev/disk4
-```
-
 ### Software
 
 - Access to **vCluster Platform** with the **vMetal** feature available
 - A **vCluster Standalone** binary suitable for the host
-- A vCluster Platform license or access token
+- A vCluster Platform license or access token as the vMetal features require the [Scale Enterprise tier](https://www.vcluster.com/docs/platform/free-vs-enterprise)
 
 ---
 
@@ -123,7 +108,9 @@ sudo virsh list --all
 
 ### 2. Create the provisioning bridge
 
-Creates `br-provision` (172.22.0.1/24) as an isolated Linux bridge with STP disabled.
+Creates `br-provision` (172.22.0.1/24) as an isolated Linux bridge with STP disabled. Also enables IP forwarding and adds a NAT masquerade rule via `LAN_INTERFACE` so provisioning VMs can reach the internet for DNS and container image pulls.
+
+> **Set `LAN_INTERFACE` in `.env` before running.** Check your outbound interface with `ip route show default` — wrong value means VMs cannot pull container images.
 
 ```bash
 bash scripts/create-bridges.sh
@@ -133,6 +120,7 @@ Verify:
 
 ```bash
 ip addr show br-provision
+ping -c 3 8.8.8.8   # should succeed (confirms NAT is working from provisioning subnet perspective)
 ```
 
 ### 3. Create the demo VMs
@@ -185,7 +173,7 @@ per-entry `/etc/hosts` maintenance.
 ```text
 Mac browser → *.vdemo.local → dnsmasq on MINISFORUM → GATEWAY_IP
                                                             ↓
-                                                   Envoy Gateway (MetalLB IP)
+                                                   Traefik Gateway (MetalLB IP)
                                                             ↓
                                               HTTPRoute → vcluster-platform svc
 ```
@@ -235,21 +223,19 @@ Access the Platform UI at `http://vcp.vdemo.local` from your Mac once the pods a
 ready. To add another service later (Argo CD, Grafana, etc.), create an `HTTPRoute` in
 its namespace — no changes to the Gateway needed.
 
-Connect the vCluster Standalone cluster to vCluster Platform through the UI, then note
-the connected cluster name — you will need it in the next step.
+> **Note:** vCluster Platform automatically connects the cluster it runs on as `loft-cluster`. No manual cluster import is needed. The NodeProvider and VirtualClusterInstance manifests already reference `loft-cluster`.
 
 ### 6. Create the Metal3 NodeProvider
 
-Apply the NodeProvider manifest. Edit the `clusterRef.cluster` field to match your connected cluster name in vCluster Platform.
-
 ```bash
-# Review and edit the cluster name first
-vi manifests/platform/node-provider.yaml
-
 kubectl apply -f manifests/platform/node-provider.yaml
 ```
 
-This tells vMetal to deploy Metal3, Ironic, DHCP, and Multus as a platform-managed stack on the connected cluster.
+This tells vMetal to deploy Metal3, Ironic, DHCP, and Multus as a platform-managed stack on `loft-cluster`. Watch until the NodeProvider is `Ready`:
+
+```bash
+kubectl get nodeprovider metal3-provider -w
+```
 
 Reference: [vCluster Platform Metal3 NodeProvider docs](https://www.vcluster.com/docs/platform/administer/node-providers/metal3)
 
@@ -270,6 +256,41 @@ kubectl -n metal3-system get baremetalhost -w
 # States: registering → inspecting → available
 ```
 
+### 8. Cache the OS image locally
+
+The IPA ramdisk running inside provisioning VMs has no DNS or internet access — it is isolated on the provisioning bridge (`172.22.0.0/24`). The OS image must be served from the host so Ironic can reach it. Caching it locally also cuts provisioning time from 8+ minutes to ~40 seconds.
+
+```bash
+bash scripts/cache-os-image.sh
+```
+
+This downloads Ubuntu 24.04 minimal (~500 MB) to `/srv/os-images/`, verifies the checksum, and starts an `os-image-server` systemd service on `http://172.22.0.1:9000/`.
+
+### 9. Apply the OSImage, template, and create a VirtualClusterInstance
+
+```bash
+# OSImage — tells vMetal where to find the Ubuntu image (served from local cache)
+kubectl apply -f manifests/platform/os-image.yaml
+
+# VirtualClusterTemplate — parameterized template for bare metal vClusters
+kubectl apply -f manifests/platform/vmetal-template.yaml
+
+# VirtualClusterInstance — creates vmetal-demo, claims one small BareMetalHost
+kubectl apply -f manifests/platform/vcluster-vmetal.yaml
+```
+
+The `VirtualClusterInstance` uses `vmetal-template` and starts at Kubernetes v1.34.1. It automatically claims an available `small-node` BareMetalHost, provisions it with Ubuntu, and joins it as a worker node.
+
+Watch the node claim progress:
+
+```bash
+kubectl get nodeclaims -A -w
+kubectl -n metal3-system get baremetalhost -w
+# States: available → provisioning → provisioned
+```
+
+Once provisioned, the node joins and system pods start running. The full cycle takes about a minute.
+
 ---
 
 ## Expected Outcome
@@ -280,7 +301,8 @@ When the demo is working end to end:
 - Sushy Tools provides Redfish/BMC access to each VM
 - vCluster Platform's vMetal feature manages the Metal3/Ironic stack
 - BareMetalHost resources transition through `registering → inspecting → available`
-- Available servers can be claimed and provisioned through the platform's node provider workflow
+- A `VirtualClusterInstance` claims a BareMetalHost, provisions it with Ubuntu (~40s from local cache), and the node joins as a vCluster worker
+- System pods (flannel, kube-proxy, coredns, konnectivity) come up `Running` on the bare metal node
 
 **Short version**: fake hardware locally, real bare-metal control flow in the platform.
 
@@ -304,32 +326,39 @@ configs/
   vm-inventory.txt      — auto-generated by create-vms.sh; used by generate-bmh.sh
   vcluster.yaml         — vCluster Standalone config template (rendered by install-vcluster.sh)
 docs/
+  local-instructions.md — machine-specific step-by-step for the MINISFORUM X1 Pro 370
   design-notes.md       — architecture decisions, VM sizing, hardware notes
   networking.md         — bridge design, IP allocation, STP, NIC layout
   troubleshooting.md    — common issues and fixes
+  vmetal-logo.svg       — vMetal logo (used in README)
 scripts/
   bootstrap-host.sh         — install packages, enable libvirtd, add user to groups
-  create-bridges.sh         — create br-provision Linux bridge
+  create-bridges.sh         — create br-provision Linux bridge + NAT for VM internet access
   create-vms.sh             — create 3 small + 2 large demo VMs
   destroy-vms.sh            — tear down demo VMs
   start-sushy-tools.sh      — install and run sushy-tools in foreground
   install-sushy-service.sh  — install sushy-tools as a systemd service
+  cache-os-image.sh         — download Ubuntu image and start local HTTP image server
+  install-image-server.sh   — install os-image-server systemd service
   install-dnsmasq.sh        — install dnsmasq for *.VDEMO_DOMAIN wildcard DNS on the LAN
   install-vcluster.sh       — install vCluster Standalone + Platform + Gateway + MetalLB
   reset-demo.sh             — full teardown (sushy + VMs + bridge)
 manifests/
   gateway/
-    gatewayclass.yaml   — GatewayClass for Envoy Gateway
-    gateway.yaml        — wildcard *.VDEMO_DOMAIN Gateway (gets MetalLB IP)
-    httproute-vcp.yaml  — HTTPRoute: vcp.VDEMO_DOMAIN → vcluster-platform svc
+    gatewayclass.yaml       — GatewayClass for Envoy Gateway
+    gateway.yaml            — wildcard *.VDEMO_DOMAIN Gateway (gets MetalLB IP)
+    httproute-vcp.yaml      — HTTPRoute: vcp.VDEMO_DOMAIN → vcluster-platform svc
   platform/
-    node-provider.yaml  — Metal3 NodeProvider for vCluster Platform
+    node-provider.yaml      — Metal3 NodeProvider for vCluster Platform
+    os-image.yaml           — OSImage: Ubuntu 24.04 minimal served from local cache
+    vmetal-template.yaml    — VirtualClusterTemplate with kubernetesVersion + nodeCount params
+    vcluster-vmetal.yaml    — VirtualClusterInstance using vmetal-template (starts at v1.34.1)
   baremetal/
-    bmc-secret.yaml     — BMC credential Secret template
-    baremetal-host.yaml — BareMetalHost template
+    bmc-secret.yaml         — BMC credential Secret template
+    baremetal-host.yaml     — BareMetalHost template
 hack/
-  generate-bmh.sh       — generate per-VM BareMetalHost + Secret YAML from inventory
-  setup-mac-dns.sh      — create /etc/resolver/VDEMO_DOMAIN on Mac for wildcard DNS
+  generate-bmh.sh           — generate per-VM BareMetalHost + Secret YAML from inventory
+  setup-mac-dns.sh          — create /etc/resolver/VDEMO_DOMAIN on Mac for wildcard DNS
 ```
 
 ---
@@ -397,21 +426,20 @@ Verify:
 ## Teardown
 
 ```bash
+export KUBECONFIG=/var/lib/vcluster/kubeconfig.yaml
+
+# 1. Delete the vCluster (releases NodeClaim and BareMetalHost)
+kubectl delete virtualclusterinstance vmetal-demo -n p-default
+
+# 2. Delete BareMetalHosts and NodeProvider (undeploys Metal3/Ironic/DHCP)
+kubectl delete baremetalhost --all -n metal3-system
+kubectl delete nodeprovider metal3-provider
+
+# 3. Tear down local infra (sushy-tools, VMs, bridge)
 bash scripts/reset-demo.sh
 ```
 
-Or step by step:
-
-```bash
-# Remove platform resources first (in vCluster Platform)
-kubectl -n metal3-system delete baremetalhost --all
-kubectl delete nodeprovider metal3-provider
-
-# Then tear down local infra
-sudo systemctl stop sushy-tools        # if running as a service
-bash scripts/destroy-vms.sh
-sudo nmcli conn delete br-provision
-```
+> Resume from Step 3 of the Quickstart to re-run the demo without reinstalling vCluster Standalone or Platform.
 
 ---
 
@@ -420,7 +448,6 @@ sudo nmcli conn delete br-provision
 - Production-grade bare-metal automation
 - Multi-host HA design
 - General-purpose Metal3 installation instructions independent of vCluster Platform
-- Docker- or K3s-based repackaging unless explicitly needed later
 
 ---
 
