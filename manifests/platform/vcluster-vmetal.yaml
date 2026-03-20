@@ -35,4 +35,4 @@ spec:
     cluster: loft-cluster
   parameters: |
     kubernetesVersion: v1.34.1
-    cpuLimit: "3"
+    cpuLimit: "5"

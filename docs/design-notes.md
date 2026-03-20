@@ -85,7 +85,7 @@ The demo uses a `VirtualClusterTemplate` (`manifests/platform/vmetal-template.ya
 | Parameter | Purpose | Default | Options |
 |---|---|---|---|
 | `kubernetesVersion` | K8s control plane version | `v1.34.1` | `v1.34.1`, `v1.35.0` |
-| `nodeCount` | Number of bare metal worker nodes to claim | `1` | `1`, `2`, `3` |
+| `cpuLimit` | Maximum CPUs that can be provisioned by this node pool | `5` | `2`, `5`, `10` |
 
 The template renders into a vCluster Helm release using `controlPlane.distro.k8s.version` to set the K8s version. This enables a live upgrade demo:
 

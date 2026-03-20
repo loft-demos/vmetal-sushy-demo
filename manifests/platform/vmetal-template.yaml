@@ -80,9 +80,9 @@ spec:
     - variable: cpuLimit
       label: CPU Limit
       description: >
-        Number of bare metal worker nodes CPUs to allow to be provisioned via Metal3.
-      defaultValue: "2"
+        Maximum CPUs that can be provisioned by this node pool.
+      defaultValue: "5"
       options:
         - "2"
-        - "3"
         - "5"
+        - "10"
