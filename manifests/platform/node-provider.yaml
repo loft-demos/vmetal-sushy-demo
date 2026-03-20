@@ -67,10 +67,14 @@ spec:
               }
 
     # nodeTypes define classes of bare-metal machines the provider can claim.
-    # The selector.matchLabels must match the labels on BareMetalHost resources
-    # (see manifests/baremetal/).
+    # The selector.matchLabels must match labels on BareMetalHost resources.
+    # resources + properties (cpu/memory) declare node capacity so Karpenter
+    # can make scale-from-zero scheduling decisions for dynamic node pools.
     nodeTypes:
       - name: small-node
+        resources:
+          cpu: "2"
+          memory: 4Gi
         bareMetalHosts:
           selector:
             matchLabels:
@@ -78,8 +82,13 @@ spec:
               vmetal-size: small
         properties:
           vcluster.com/os-image: ubuntu-noble
+          vcluster.com/cpu: "2"
+          vcluster.com/memory: 4Gi
 
       - name: large-node
+        resources:
+          cpu: "4"
+          memory: 8Gi
         bareMetalHosts:
           selector:
             matchLabels:
@@ -87,3 +96,5 @@ spec:
               vmetal-size: large
         properties:
           vcluster.com/os-image: ubuntu-noble
+          vcluster.com/cpu: "4"
+          vcluster.com/memory: 8Gi
