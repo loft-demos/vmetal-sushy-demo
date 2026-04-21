@@ -30,7 +30,7 @@ spec:
   clusterRef:
     cluster: loft-cluster
   parameters: |
-    kubernetesVersion: v1.34.1
+    kubernetesVersion: v1.34.7
     smallNodeCount: "1"
     mediumNodeCount: "0"
-    largeNodeCount: "1"
+    largeNodeCount: "0"

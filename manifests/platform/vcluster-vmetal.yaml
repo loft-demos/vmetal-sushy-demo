@@ -36,6 +36,6 @@ spec:
   clusterRef:
     cluster: loft-cluster
   parameters: |
-    kubernetesVersion: v1.34.1
+    kubernetesVersion: v1.34.7
     nodeType: small-node
     cpuLimit: "5"

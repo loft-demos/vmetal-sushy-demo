@@ -73,10 +73,11 @@ spec:
         Control plane Kubernetes version. Updating this value triggers a
         rolling upgrade of the vCluster control plane. The bare metal node
         kubelet is re-provisioned separately via the NodeClaim lifecycle.
-      defaultValue: v1.34.1
+      defaultValue: v1.34.7
       options:
-        - v1.34.1
-        - v1.35.0
+        - v1.33.11
+        - v1.34.7
+        - v1.35.4
 
     - variable: cpuLimit
       label: CPU Limit
