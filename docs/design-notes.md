@@ -90,7 +90,7 @@ The demo now ships with two `VirtualClusterTemplate` variants:
 
 | Parameter | Purpose | Default | Options |
 |---|---|---|---|
-| `kubernetesVersion` | K8s control plane version | `v1.34.1` | `v1.34.1`, `v1.35.0` |
+| `kubernetesVersion` | K8s control plane version | `v1.34.7` | `v1.33.11`, `v1.34.7`, `v1.35.4` |
 | `nodeType` | BareMetalHost class to target | `small-node` | `small-node`, `medium-node`, `large-node` |
 | `cpuLimit` | Maximum CPUs that can be provisioned by this node pool | `5` | `2`, `3`, `5`, `6`, `10` |
 
@@ -98,12 +98,12 @@ The demo now ships with two `VirtualClusterTemplate` variants:
 
 `manifests/platform/vmetal-static-template.yaml` models fixed-size pools that are closer to the reserved-capacity pattern we usually see in AI clouds. It exposes one quantity parameter per node type:
 
-| Parameter | Purpose | Default | Options |
-|---|---|---|---|
-| `kubernetesVersion` | K8s control plane version | `v1.34.1` | `v1.34.1`, `v1.35.0` |
-| `smallNodeCount` | Number of `small-node` workers to keep present | `1` | `0`, `1`, `2`, `3` |
-| `mediumNodeCount` | Number of `medium-node` workers to keep present | `0` | `0`, `1` |
-| `largeNodeCount` | Number of `large-node` workers to keep present | `1` | `0`, `1`, `2` |
+| Parameter           | Purpose | Default | Options |
+|---------------------|---|---|---|
+| `kubernetesVersion` | K8s control plane version | `v1.34.7` | `v1.33.11`, `v1.34.7`, `v1.35.4` |
+| `smallNodeCount`    | Number of `small-node` workers to keep present | `1` | `0`, `1`, `2`, `3` |
+| `mediumNodeCount`   | Number of `medium-node` workers to keep present | `0` | `0`, `1` |
+| `largeNodeCount`    | Number of `large-node` workers to keep present | `1` | `0`, `1`, `2` |
 
 Both templates render into a vCluster Helm release using `controlPlane.distro.k8s.version` to set the K8s version. This enables a live upgrade demo:
 
