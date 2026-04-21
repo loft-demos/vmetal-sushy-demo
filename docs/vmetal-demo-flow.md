@@ -138,7 +138,7 @@ Show quickly:
 - `scripts/start-sushy-tools.sh`
 - `curl http://172.22.0.1:8000/redfish/v1/Systems/ | jq .`
 
-This establishes the fake hardware layer without spending the meeting on setup.
+This establishes the emulated hardware layer without spending the meeting on setup.
 
 ### 3. Show the machine-management layer first
 

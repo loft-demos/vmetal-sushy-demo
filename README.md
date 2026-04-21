@@ -2,7 +2,7 @@
 
 # vMetal Demo with Sushy Tools
 
-This repository is a single-machine demo for **vMetal** on **vCluster Platform**, using **Sushy Tools** and **libvirt/KVM** to emulate Redfish-managed bare metal on one Ubuntu host. The point of the demo is not "Metal3 on a laptop" by itself. The point is to show that **vCluster Platform's vMetal feature** can provide and operate the bare-metal management stack while the local machine supplies fake hardware to manage.
+This repository is a single-machine demo for **vMetal** on **vCluster Platform**, using **Sushy Tools** and **libvirt/KVM** to emulate Redfish-managed bare metal on one Ubuntu host. The point of the demo is not "Metal3 on a laptop" by itself. The point is to show that **vCluster Platform's vMetal feature** can provide and operate the bare-metal management stack while the local machine supplies emulated hardware to manage.
 
 In this setup, **vCluster Platform** is the control-plane experience being demoed, and **vMetal** is the feature under test. **Sushy Tools** and **libvirt** are the local infrastructure shim that make the demo reproducible without real servers.
 
@@ -42,7 +42,7 @@ Naming note: this demo uses OpenStack **Sushy Tools** for Redfish. That is diffe
                                                        v
                                    +-----------------------------------+
                                    |          libvirt / KVM VMs        |
-                                   |   fake bare metal worker nodes    |
+                                   |  emulated bare metal workers      |
                                    |   (3x small + 2x large)           |
                                    +-----------------------------------+
 
@@ -412,7 +412,7 @@ When the demo is working end to end:
 - A `VirtualClusterInstance` claims one or more BareMetalHosts, provisions them with Ubuntu (~40s from local cache), and the nodes join as vCluster workers
 - System pods (flannel, kube-proxy, coredns, konnectivity) come up `Running` on the bare metal node
 
-**Short version**: fake hardware locally, real bare-metal control flow in the platform.
+**Short version**: emulated hardware locally, real bare-metal control flow in the platform.
 
 ## Demo Narrative
 
