@@ -1,7 +1,9 @@
 # vcluster-vmetal.yaml — VirtualClusterInstance backed by vmetal-template
 #
-# Creates a vCluster in the Default Project that provisions one small bare
-# metal node via the Metal3 NodeProvider, starting at Kubernetes v1.34.1.
+# Creates a vCluster in the Default Project that provisions bare metal nodes
+# via the Metal3 NodeProvider, starting at Kubernetes v1.34.1. The default
+# sample targets the small-node class; set nodeType to medium-node for a
+# 3 vCPU / 6 GiB middle ground.
 #
 # Apply with:
 #   kubectl apply -f manifests/platform/vmetal-template.yaml   # once
@@ -35,4 +37,5 @@ spec:
     cluster: loft-cluster
   parameters: |
     kubernetesVersion: v1.34.1
+    nodeType: small-node
     cpuLimit: "5"

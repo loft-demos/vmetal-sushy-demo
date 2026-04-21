@@ -132,10 +132,14 @@ This means every BareMetalHost must have:
 annotations:
   metal3.vcluster.com/ip-address: "172.22.0.11/24"   # unique per host
   metal3.vcluster.com/gateway: "172.22.0.1"
-  metal3.vcluster.com/dns-servers: "8.8.8.8,1.1.1.1"
+  metal3.vcluster.com/dns-servers: "172.22.0.1"
 ```
 
-`hack/generate-bmh.sh` adds these automatically by assigning sequential IPs starting at `VM_IP_START`.
+In this demo, the safest DNS server for provisioned nodes is the host bridge IP
+(`172.22.0.1` by default), where `scripts/install-dnsmasq.sh` can answer both
+`*.vdemo.local` and public lookups via upstream forwarders. `hack/generate-bmh.sh`
+adds these annotations automatically by assigning sequential IPs starting at
+`VM_IP_START`.
 
 ---
 

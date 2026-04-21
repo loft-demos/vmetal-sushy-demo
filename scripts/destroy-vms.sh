@@ -2,8 +2,8 @@
 # destroy-vms.sh — remove all demo libvirt VMs for vmetal-sushy-demo
 #
 # Destroys (force-powers-off) and undefines all VMs whose names match
-# $SMALL_VM_NAME_PREFIX-N and $LARGE_VM_NAME_PREFIX-N, then removes
-# their disk images and the VM inventory file.
+# $SMALL_VM_NAME_PREFIX-N, $MEDIUM_VM_NAME_PREFIX-N, and $LARGE_VM_NAME_PREFIX-N,
+# then removes their disk images and the VM inventory file.
 #
 # Usage:
 #   bash scripts/destroy-vms.sh
@@ -17,6 +17,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Load defaults
 SMALL_VM_COUNT="${SMALL_VM_COUNT:-3}"
 SMALL_VM_NAME_PREFIX="${SMALL_VM_NAME_PREFIX:-vmetal-small}"
+MEDIUM_VM_COUNT="${MEDIUM_VM_COUNT:-0}"
+MEDIUM_VM_NAME_PREFIX="${MEDIUM_VM_NAME_PREFIX:-vmetal-medium}"
 LARGE_VM_COUNT="${LARGE_VM_COUNT:-2}"
 LARGE_VM_NAME_PREFIX="${LARGE_VM_NAME_PREFIX:-vmetal-large}"
 VM_IMAGE_DIR="${VM_IMAGE_DIR:-/var/lib/libvirt/images}"
@@ -68,6 +70,14 @@ destroy_vm() {
 log "=== Destroying ${SMALL_VM_COUNT} small VMs ==="
 for i in $(seq 1 "${SMALL_VM_COUNT}"); do
   destroy_vm "${SMALL_VM_NAME_PREFIX}-${i}"
+done
+
+# ---------------------------------------------------------------------------
+# Destroy medium VMs
+# ---------------------------------------------------------------------------
+log "=== Destroying ${MEDIUM_VM_COUNT} medium VMs ==="
+for i in $(seq 1 "${MEDIUM_VM_COUNT}"); do
+  destroy_vm "${MEDIUM_VM_NAME_PREFIX}-${i}"
 done
 
 # ---------------------------------------------------------------------------

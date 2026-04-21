@@ -1,7 +1,8 @@
-# os-image.yaml — Ubuntu 24.04 LTS minimal cloud image for Metal3 provisioning
+# os-image.yaml — default Ubuntu 24.04 LTS minimal OSImage for Metal3 provisioning
 #
 # Uses the Ubuntu minimal cloud image (~500 MB vs ~650 MB for full server image).
 # Ironic downloads this URL and writes it directly to the VM disk.
+# Additional generated OSImages can live under manifests/platform/os-images/.
 #
 # IMPORTANT: The IPA ramdisk running inside provisioning VMs has no DNS or internet
 # access — it is isolated on the provisioning bridge (172.22.0.0/24). The image
@@ -9,8 +10,9 @@
 #
 # Before applying:
 #   bash scripts/cache-os-image.sh
-# This downloads the image to /srv/os-images/ and starts the os-image-server
-# systemd service on http://172.22.0.1:9000/.
+# This downloads the default minimal image to /srv/os-images/, starts the
+# os-image-server systemd service on http://172.22.0.1:9000/, and also writes
+# manifests/platform/os-images/ubuntu-noble.yaml.
 #
 # Apply with:
 #   kubectl apply -f manifests/platform/os-image.yaml

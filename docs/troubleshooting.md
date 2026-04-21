@@ -198,6 +198,112 @@ Then update `LAN_INTERFACE` in your `.env` to the correct value so `create-bridg
 
 ---
 
+## Platform / Gateway
+
+### `vcluster platform login` refuses `http://vcp.vdemo.local`
+
+**Symptom**:
+
+```text
+fatal cannot log into a non https vcluster platform instance 'http://vcp.vdemo.local'
+```
+
+**Cause**: The vcluster CLI requires HTTPS for Platform logins, even when you pass `--insecure`. `--insecure` skips certificate verification; it does not allow plain HTTP.
+
+**Fix**: Re-run `bash scripts/install-vcluster.sh` so the Gateway has the wildcard TLS certificate and HTTPS listener, then log in with:
+
+```bash
+vcluster platform login https://vcp.vdemo.local --insecure
+```
+
+If the rest of Platform is already healthy and you only need the HTTPS patch, apply just
+the Gateway resources:
+
+```bash
+source .env
+KC="sudo KUBECONFIG=/var/lib/vcluster/kubeconfig.yaml kubectl"
+
+sed "s|VDEMO_DOMAIN_PLACEHOLDER|${VDEMO_DOMAIN}|g" manifests/gateway/tls-wildcard.yaml \
+  | ${KC} apply -f -
+
+${KC} -n traefik wait --for=condition=Ready certificate/vdemo-wildcard-cert --timeout=180s
+
+for manifest in \
+  manifests/gateway/gatewayclass.yaml \
+  manifests/gateway/gateway.yaml \
+  manifests/gateway/httproute-http-redirect.yaml \
+  manifests/gateway/httproute-vcp.yaml
+do
+  sed "s|VDEMO_DOMAIN_PLACEHOLDER|${VDEMO_DOMAIN}|g" "${manifest}" | ${KC} apply -f -
+done
+```
+
+If that still fails, check that the certificate and Gateway are ready:
+
+```bash
+export KUBECONFIG=/var/lib/vcluster/kubeconfig.yaml
+kubectl -n traefik get certificate vdemo-wildcard-cert
+kubectl -n traefik get gateway demo-gateway
+kubectl -n traefik get httproute
+```
+
+Browsers will also warn until you trust the self-signed cert locally.
+
+---
+
+### Private Node agent fails with `lookup vcp.vdemo.local ... no such host`
+
+**Symptom**: The connected-cluster or Private Node agent fails with messages like:
+
+```text
+lookup vcp.vdemo.local on 10.x.x.x:53: no such host
+failed to check derp connection
+```
+
+**Cause**: The provisioned node is using a public DNS server that does not know
+the local demo zone (`*.vdemo.local`). DERP relays do not help here because the
+agent cannot reach the platform URL in the first place.
+
+**Fix**: Re-run `bash scripts/install-dnsmasq.sh` after the provisioning bridge
+exists so dnsmasq listens on `PROVISION_IP` (default `172.22.0.1`), then make
+sure generated BareMetalHosts use that resolver:
+
+```bash
+dig +short vcp.vdemo.local @172.22.0.1
+
+# Optional override if you need a different resolver list
+export PROVISION_DNS_SERVERS=172.22.0.1
+bash hack/generate-bmh.sh | kubectl apply -f -
+```
+
+If `vcp.vdemo.local` resolves but public registries such as `ghcr.io` do not,
+the host's dnsmasq upstream resolvers are likely wrong for your LAN. Check the
+uplink DNS and pin it if needed:
+
+```bash
+resolvectl dns <LAN_INTERFACE>
+echo 'UPSTREAM_DNS_SERVERS=192.168.50.1' >> .env
+bash scripts/install-dnsmasq.sh
+dig +short ghcr.io @172.22.0.1
+```
+
+If `vcp.vdemo.local` resolves but `resolvectl query ghcr.io` on the worker says
+`No appropriate name servers or networks for name found`, the worker's
+`systemd-resolved` link likely has a route-only `~vdemo.local` domain but is no
+longer marked as the default DNS route for public names. Restore both settings:
+
+```bash
+iface=$(ip route show default 0.0.0.0/0 | awk 'NR==1 {print $5}')
+sudo resolvectl domain "${iface}" '~vdemo.local'
+sudo resolvectl default-route "${iface}" yes
+resolvectl query ghcr.io
+```
+
+If the node was already provisioned with the wrong DNS settings, reprovision it
+so the updated annotation is applied to the installed OS.
+
+---
+
 ## Redfish / Sushy Tools
 
 ### BareMetalHost registration error — SSL handshake failure
@@ -361,7 +467,7 @@ missing metal3.vcluster.com/ip-address annotation
 annotations:
   metal3.vcluster.com/ip-address: "172.22.0.11/24"
   metal3.vcluster.com/gateway: "172.22.0.1"
-  metal3.vcluster.com/dns-servers: "8.8.8.8,1.1.1.1"
+  metal3.vcluster.com/dns-servers: "172.22.0.1"
 ```
 
 ---

@@ -1,0 +1,127 @@
+# vmetal-static-template.yaml — VirtualClusterTemplate for static bare metal pools
+#
+# Parameterized template that provisions a vCluster backed by fixed-size bare
+# metal node pools via the metal3-provider NodeProvider. This mirrors the
+# "reserved capacity" model often used by AI clouds, where each machine class
+# has an explicit pool size instead of scaling purely on demand.
+#
+# Parameters:
+#   kubernetesVersion — control plane K8s version; update to trigger an upgrade
+#   smallNodeCount    — desired number of small-node workers
+#   mediumNodeCount   — desired number of medium-node workers
+#   largeNodeCount    — desired number of large-node workers
+#
+# Apply with:
+#   kubectl apply -f manifests/platform/vmetal-static-template.yaml
+#
+# Then create a VirtualClusterInstance that references this template:
+#   kubectl apply -f manifests/platform/vcluster-vmetal-static.yaml
+#
+# Reference:
+#   https://www.vcluster.com/docs/platform/administer/node-providers/metal3
+
+apiVersion: management.loft.sh/v1
+kind: VirtualClusterTemplate
+metadata:
+  name: vmetal-static-template
+spec:
+  displayName: "vMetal — Bare Metal Static Node Pools"
+  description: >
+    vCluster backed by fixed-size bare metal node pools provisioned through the
+    Metal3 NodeProvider. Each node class has its own desired quantity, which is
+    a better fit for AI-cloud style reserved capacity than a purely dynamic
+    scale-up model.
+
+  owner:
+    team: loft-admins
+
+  template:
+    helmRelease:
+      chart:
+        version: 0.33.1
+      values: |
+        privateNodes:
+          enabled: true
+          autoNodes:
+            - provider: metal3-provider
+              static:
+                {{ if ne .Values.smallNodeCount "0" }}
+                - name: static-small-nodes
+                  quantity: {{ .Values.smallNodeCount }}
+                  nodeTypeSelector:
+                    - property: vcluster.com/node-type
+                      value: small-node
+                {{ end }}
+                {{ if ne .Values.mediumNodeCount "0" }}
+                - name: static-medium-nodes
+                  quantity: {{ .Values.mediumNodeCount }}
+                  nodeTypeSelector:
+                    - property: vcluster.com/node-type
+                      value: medium-node
+                {{ end }}
+                {{ if ne .Values.largeNodeCount "0" }}
+                - name: static-large-nodes
+                  quantity: {{ .Values.largeNodeCount }}
+                  nodeTypeSelector:
+                    - property: vcluster.com/node-type
+                      value: large-node
+                {{ end }}
+        networking:
+          podCIDR: 10.64.0.0/16
+          serviceCIDR: 10.128.0.0/16
+        controlPlane:
+          backingStore:
+            etcd:
+              embedded:
+                enabled: true
+          distro:
+            k8s:
+              version: "{{ .Values.kubernetesVersion }}"
+
+  # ---------------------------------------------------------------------------
+  # Parameters — surfaced in the vCluster Platform UI and passed to helm values
+  # ---------------------------------------------------------------------------
+  parameters:
+    - variable: kubernetesVersion
+      label: Kubernetes Version
+      description: >
+        Control plane Kubernetes version. Updating this value triggers a
+        rolling upgrade of the vCluster control plane while the fixed worker
+        pools remain managed through the NodeClaim lifecycle.
+      defaultValue: v1.34.1
+      options:
+        - v1.34.1
+        - v1.35.0
+
+    - variable: smallNodeCount
+      label: Small Node Count
+      description: >
+        Desired quantity for the static small-node pool. Set to 0 to omit this
+        node class from the vCluster.
+      defaultValue: "1"
+      options:
+        - "0"
+        - "1"
+        - "2"
+        - "3"
+
+    - variable: mediumNodeCount
+      label: Medium Node Count
+      description: >
+        Desired quantity for the static medium-node pool. Keep this at 0 unless
+        you have created medium BareMetalHosts for the demo.
+      defaultValue: "0"
+      options:
+        - "0"
+        - "1"
+
+    - variable: largeNodeCount
+      label: Large Node Count
+      description: >
+        Desired quantity for the static large-node pool. This is the most
+        AI-cloud-like worker class in the default demo inventory.
+      defaultValue: "1"
+      options:
+        - "0"
+        - "1"
+        - "2"

@@ -29,7 +29,7 @@ Without the HWE kernel, `enp197s0` will not appear and the machine will have no 
 | LAN IP | `192.168.50.61` |
 | Gateway IP (free) | `192.168.50.200` |
 | Domain | `vdemo.local` |
-| Platform UI | `http://vcp.vdemo.local` |
+| Platform UI | `https://vcp.vdemo.local` |
 | Provisioning bridge | `br-provision` @ `172.22.0.1/24` |
 | Sushy Tools | `http://172.22.0.1:8000` |
 | OS Image server | `http://172.22.0.1:9000` |
@@ -157,10 +157,27 @@ On the MINISFORUM:
 bash scripts/install-dnsmasq.sh
 ```
 
+This also makes the host answer `*.vdemo.local` on the provisioning bridge
+(`172.22.0.1` by default) so Private Nodes can resolve `vcp.vdemo.local`.
+
 On your Mac:
 
 ```bash
-bash hack/setup-mac-dns.sh
+bash hack/setup-mac-dns.sh lan
+```
+
+If you want a clean home/travel switch:
+
+```bash
+# At home on the local LAN
+bash hack/setup-mac-dns.sh lan
+
+# Away from home over Tailscale
+bash hack/setup-mac-dns.sh tailscale <tailscale-dns-ip>
+
+# Check or remove the current resolver
+bash hack/setup-mac-dns.sh status
+bash hack/setup-mac-dns.sh off
 ```
 
 Verify from your Mac:
@@ -186,7 +203,36 @@ export KUBECONFIG=/var/lib/vcluster/kubeconfig.yaml
 kubectl -n vcluster-platform get pods -w
 ```
 
-Once all pods are `Running`, open **http://vcp.vdemo.local** from your Mac and log in.
+Once all pods are `Running`, open **https://vcp.vdemo.local** from your Mac and log in.
+The demo cert is self-signed, so your browser will warn until you trust it locally.
+
+For the CLI, use:
+
+```bash
+vcluster platform login https://vcp.vdemo.local --insecure
+```
+
+If vCluster Standalone and Platform were already installed before the HTTPS change, patch
+the existing setup in place instead of reinstalling:
+
+```bash
+source .env
+KC="sudo KUBECONFIG=/var/lib/vcluster/kubeconfig.yaml kubectl"
+
+sed "s|VDEMO_DOMAIN_PLACEHOLDER|${VDEMO_DOMAIN}|g" manifests/gateway/tls-wildcard.yaml \
+  | ${KC} apply -f -
+
+${KC} -n traefik wait --for=condition=Ready certificate/vdemo-wildcard-cert --timeout=180s
+
+for manifest in \
+  manifests/gateway/gatewayclass.yaml \
+  manifests/gateway/gateway.yaml \
+  manifests/gateway/httproute-http-redirect.yaml \
+  manifests/gateway/httproute-vcp.yaml
+do
+  sed "s|VDEMO_DOMAIN_PLACEHOLDER|${VDEMO_DOMAIN}|g" "${manifest}" | ${KC} apply -f -
+done
+```
 
 ---
 
@@ -222,6 +268,8 @@ bash hack/generate-bmh.sh | kubectl apply -f -
 ```
 
 Creates one `BareMetalHost` + BMC credentials `Secret` per VM. Watch them progress:
+The generated annotations use `PROVISION_IP` as the DNS server by default so
+provisioned nodes can resolve the local vCP hostname.
 
 ```bash
 kubectl -n metal3-system get baremetalhost -w
@@ -239,7 +287,23 @@ The IPA ramdisk has no internet access — serve the image locally for ~40s prov
 bash scripts/cache-os-image.sh
 ```
 
-Downloads Ubuntu 24.04 minimal to `/srv/os-images/` and starts the `os-image-server` systemd service on `http://172.22.0.1:9000/`.
+Downloads Ubuntu 24.04 minimal to `/srv/os-images/`, starts the `os-image-server`
+systemd service on `http://172.22.0.1:9000/`, and generates
+`manifests/platform/os-images/ubuntu-noble.yaml`.
+
+Alternative images are supported too:
+
+```bash
+# Full Ubuntu server cloud image
+bash scripts/cache-os-image.sh ubuntu-server
+
+# Custom image with extra packages
+sudo apt-get install -y libguestfs-tools
+bash scripts/build-custom-os-image.sh \
+  --name ubuntu-noble-observability \
+  --display-name "Ubuntu 24.04 LTS (Observability Tools)" \
+  --packages qemu-guest-agent,curl,jq,nfs-common
+```
 
 Verify:
 
@@ -252,16 +316,28 @@ curl -I http://172.22.0.1:9000/ubuntu-24.04-minimal-cloudimg-amd64.img
 
 ## Step 10 — Apply platform manifests and create the vCluster
 
+Apply either demo path below, or both if you have enough BareMetalHosts available.
+
 ```bash
 # OSImage (tells vMetal where to find Ubuntu)
 kubectl apply -f manifests/platform/os-image.yaml
 
-# VirtualClusterTemplate (parameterized template for vMetal bare metal vClusters)
+# Dynamic VirtualClusterTemplate (parameterized template for vMetal bare metal vClusters)
 kubectl apply -f manifests/platform/vmetal-template.yaml
 
-# VirtualClusterInstance (creates vmetal-demo, claims one small BareMetalHost)
+# Dynamic VirtualClusterInstance (creates vmetal-demo, claims one small BareMetalHost)
 kubectl apply -f manifests/platform/vcluster-vmetal.yaml
+
+# Static VirtualClusterTemplate (fixed-size pools per node class)
+kubectl apply -f manifests/platform/vmetal-static-template.yaml
+
+# Static VirtualClusterInstance (creates vmetal-static-demo with 1 small + 1 large node)
+kubectl apply -f manifests/platform/vcluster-vmetal-static.yaml
 ```
+
+If you cached a non-default image, apply its generated manifest from
+`manifests/platform/os-images/` and update the relevant node type in
+`manifests/platform/node-provider.yaml` to use that OSImage name.
 
 Watch the provisioning pipeline:
 
@@ -273,7 +349,9 @@ kubectl get nodeclaims -A -w
 kubectl -n metal3-system get baremetalhost -w
 ```
 
-Once the node is `Joined`, open the vmetal-demo vCluster in the Platform UI and check Nodes + Pods.
+The dynamic template is better for showing elastic scale-up. The static template is better for showing fixed AI-cloud style capacity, with one count parameter per node type.
+
+Once the nodes are `Joined`, open the relevant vCluster in the Platform UI and check Nodes + Pods.
 
 ---
 
@@ -282,11 +360,12 @@ Once the node is `Joined`, open the vmetal-demo vCluster in the Platform UI and 
 To demonstrate a Kubernetes control plane upgrade, edit the `kubernetesVersion` parameter and re-apply:
 
 ```bash
-# Edit vcluster-vmetal.yaml: kubernetesVersion: v1.35.0
+# Edit vcluster-vmetal.yaml or vcluster-vmetal-static.yaml:
+#   kubernetesVersion: v1.35.0
 kubectl apply -f manifests/platform/vcluster-vmetal.yaml
 ```
 
-vCluster Platform re-renders the Helm release and performs a rolling control plane upgrade. Watch in the Platform UI under vmetal-demo → Status.
+vCluster Platform re-renders the Helm release and performs a rolling control plane upgrade. Watch in the Platform UI under either vmetal-demo or vmetal-static-demo → Status.
 
 ---
 

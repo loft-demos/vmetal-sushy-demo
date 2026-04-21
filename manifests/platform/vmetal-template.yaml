@@ -2,11 +2,12 @@
 #
 # Parameterized template that provisions a vCluster backed by real bare metal
 # nodes via the metal3-provider NodeProvider. Workers are claimed from available
-# BareMetalHosts matching the 'small-node' node type.
+# BareMetalHosts matching the selected node type.
 #
 # Parameters:
 #   kubernetesVersion — control plane K8s version; update to trigger an upgrade
-#   nodeCount         — number of bare metal worker nodes to provision (1, 2, or 3)
+#   nodeType          — node type to claim from the NodeProvider
+#   cpuLimit          — maximum CPUs to provision across the private node pool
 #
 # Apply with:
 #   kubectl apply -f manifests/platform/vmetal-template.yaml
@@ -40,14 +41,14 @@ spec:
   template:
     helmRelease:
       chart:
-        version: 0.33.0
+        version: 0.33.1
       values: |
         privateNodes:
           enabled: true
           autoNodes:
             - provider: metal3-provider
               dynamic:
-                - name: bm-node-pool-1
+                - name: bm-dynamic-node-pool-1
                   limits:
                     cpu: '{{ .Values.cpuLimit }}'
         networking:
@@ -84,5 +85,7 @@ spec:
       defaultValue: "5"
       options:
         - "2"
+        - "3"
         - "5"
+        - "7"
         - "10"

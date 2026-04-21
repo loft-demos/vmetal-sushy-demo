@@ -2,8 +2,9 @@
 #
 # Lives in the traefik namespace alongside the Traefik LoadBalancer service.
 # MetalLB assigns GATEWAY_IP to the traefik service; the Gateway reflects that IP.
-# The wildcard hostname listener accepts any *.VDEMO_DOMAIN subdomain and allows
-# HTTPRoutes from all namespaces to attach.
+# The wildcard hostname listeners accept any *.VDEMO_DOMAIN subdomain and allow
+# HTTPRoutes from all namespaces to attach. HTTP redirects to HTTPS; HTTPS
+# terminates on the wildcard certificate issued by cert-manager.
 #
 # Applied by install-vcluster.sh with VDEMO_DOMAIN_PLACEHOLDER substituted from .env.
 
@@ -19,6 +20,19 @@ spec:
       port: 8000        # Traefik web entryPoint container port (Service maps 80→8000)
       protocol: HTTP
       hostname: "*.VDEMO_DOMAIN_PLACEHOLDER"
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: https
+      port: 8443        # Traefik websecure entryPoint container port (Service maps 443→8443)
+      protocol: HTTPS
+      hostname: "*.VDEMO_DOMAIN_PLACEHOLDER"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            group: ""
+            name: vdemo-wildcard-tls
       allowedRoutes:
         namespaces:
           from: All

@@ -102,11 +102,9 @@ sudo systemctl reload-or-restart systemd-networkd 2>/dev/null || true
 # ---------------------------------------------------------------------------
 # 4. Enable IP forwarding and NAT so provisioning VMs can reach the internet
 #
-# VMs on the provisioning bridge get DNS servers (8.8.8.8/1.1.1.1) from the
-# vCP DHCP proxy, but their queries go nowhere without masquerade. IP forwarding
-# + NAT lets them reach the internet through the host's LAN interface for:
-#   - DNS resolution
-#   - Container image pulls (ghcr.io, docker.io, registry.k8s.io, etc.)
+# Provisioned VMs can use the host's dnsmasq on PROVISION_IP for split-horizon
+# demo DNS such as *.vdemo.local. They still need outbound connectivity for
+# container image pulls and any direct internet access after boot.
 # ---------------------------------------------------------------------------
 LAN_INTERFACE="${LAN_INTERFACE:-enp1s0}"
 

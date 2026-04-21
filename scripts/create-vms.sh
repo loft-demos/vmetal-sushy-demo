@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # create-vms.sh — create demo libvirt VMs for vmetal-sushy-demo
 #
-# Creates two profiles of VMs:
-#   small  — lightweight worker nodes (default: 3x, 2 vCPU, 4 GB RAM, 40 GB disk)
-#   large  — compute-heavy demo nodes (default: 2x, 4 vCPU, 8 GB RAM, 80 GB disk)
+# Creates three profiles of VMs:
+#   small   — lightweight worker nodes (default: 3x, 2 vCPU, 4 GB RAM, 40 GB disk)
+#   medium  — balanced worker nodes (default: 0x, 3 vCPU, 6 GB RAM, 60 GB disk)
+#   large   — compute-heavy demo nodes (default: 2x, 4 vCPU, 8 GB RAM, 80 GB disk)
 #
 # All VMs are attached to the provisioning bridge ($PROVISION_BRIDGE) and
 # configured to PXE-boot first (network), falling back to disk. They have
@@ -31,6 +32,12 @@ SMALL_VM_VCPUS="${SMALL_VM_VCPUS:-2}"
 SMALL_VM_RAM_MB="${SMALL_VM_RAM_MB:-4096}"
 SMALL_VM_DISK_GB="${SMALL_VM_DISK_GB:-40}"
 SMALL_VM_NAME_PREFIX="${SMALL_VM_NAME_PREFIX:-vmetal-small}"
+
+MEDIUM_VM_COUNT="${MEDIUM_VM_COUNT:-0}"
+MEDIUM_VM_VCPUS="${MEDIUM_VM_VCPUS:-3}"
+MEDIUM_VM_RAM_MB="${MEDIUM_VM_RAM_MB:-6144}"
+MEDIUM_VM_DISK_GB="${MEDIUM_VM_DISK_GB:-60}"
+MEDIUM_VM_NAME_PREFIX="${MEDIUM_VM_NAME_PREFIX:-vmetal-medium}"
 
 LARGE_VM_COUNT="${LARGE_VM_COUNT:-2}"
 LARGE_VM_VCPUS="${LARGE_VM_VCPUS:-4}"
@@ -70,7 +77,7 @@ fi
 # Helper: generate a deterministic MAC from a stable index
 # Uses the locally-administered prefix 52:54:00 (standard for KVM/QEMU VMs)
 # Format: 52:54:00:<profile_byte>:<hi>:<lo>
-#   profile_byte: aa for small, bb for large
+#   profile_byte: aa for small, dd for medium, bb for large
 #   hi / lo: VM index (up to 255 each, so supports up to 65535 VMs — plenty)
 # ---------------------------------------------------------------------------
 gen_mac() {
@@ -137,6 +144,16 @@ for i in $(seq 1 "${SMALL_VM_COUNT}"); do
 done
 
 # ---------------------------------------------------------------------------
+# Create medium VMs
+# ---------------------------------------------------------------------------
+log "=== Creating ${MEDIUM_VM_COUNT} medium VMs ==="
+for i in $(seq 1 "${MEDIUM_VM_COUNT}"); do
+  vm_name="${MEDIUM_VM_NAME_PREFIX}-${i}"
+  mac=$(gen_mac "dd" "${i}")
+  create_vm "${vm_name}" "${MEDIUM_VM_VCPUS}" "${MEDIUM_VM_RAM_MB}" "${MEDIUM_VM_DISK_GB}" "${mac}"
+done
+
+# ---------------------------------------------------------------------------
 # Create large VMs
 # ---------------------------------------------------------------------------
 log "=== Creating ${LARGE_VM_COUNT} large VMs ==="
@@ -166,6 +183,13 @@ for i in $(seq 1 "${SMALL_VM_COUNT}"); do
   mac=$(gen_mac "aa" "${i}")
   uuid=$(sudo virsh dominfo "${vm_name}" 2>/dev/null | awk '/^UUID/{print $2}' || echo "UNKNOWN")
   echo "${vm_name} ${uuid} ${mac} small" >> "${INVENTORY_FILE}"
+done
+
+for i in $(seq 1 "${MEDIUM_VM_COUNT}"); do
+  vm_name="${MEDIUM_VM_NAME_PREFIX}-${i}"
+  mac=$(gen_mac "dd" "${i}")
+  uuid=$(sudo virsh dominfo "${vm_name}" 2>/dev/null | awk '/^UUID/{print $2}' || echo "UNKNOWN")
+  echo "${vm_name} ${uuid} ${mac} medium" >> "${INVENTORY_FILE}"
 done
 
 for i in $(seq 1 "${LARGE_VM_COUNT}"); do

@@ -1,0 +1,22 @@
+# httproute-http-redirect.yaml — redirect all demo HTTP traffic to HTTPS
+#
+# Attaches to the HTTP listener on the shared Gateway and permanently redirects
+# every *.VDEMO_DOMAIN hostname to the HTTPS URL on the standard port 443.
+
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: vdemo-http-redirect
+  namespace: traefik
+spec:
+  parentRefs:
+    - name: demo-gateway
+      sectionName: http
+  hostnames:
+    - "*.VDEMO_DOMAIN_PLACEHOLDER"
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301

@@ -1,0 +1,36 @@
+# vcluster-vmetal-static.yaml — VirtualClusterInstance backed by vmetal-static-template
+#
+# Creates a vCluster in the Default Project that provisions fixed-size bare
+# metal pools via the Metal3 NodeProvider. The default sample requests one
+# small node and one large node, which gives the demo a heterogeneous "AI
+# cloud" shape without depending on dynamic scale-up behavior.
+#
+# Apply with:
+#   kubectl apply -f manifests/platform/vmetal-static-template.yaml   # once
+#   kubectl apply -f manifests/platform/vcluster-vmetal-static.yaml
+#
+# Watch provisioning:
+#   kubectl get virtualclusterinstances -n p-default
+#   kubectl get nodeclaims -A -w
+#   kubectl get baremetalhosts -n metal3-system
+#
+# Reference:
+#   https://www.vcluster.com/docs/platform/administer/node-providers/metal3
+
+apiVersion: management.loft.sh/v1
+kind: VirtualClusterInstance
+metadata:
+  name: vmetal-static-demo
+  namespace: p-default
+spec:
+  owner:
+    user: admin
+  templateRef:
+    name: vmetal-static-template
+  clusterRef:
+    cluster: loft-cluster
+  parameters: |
+    kubernetesVersion: v1.34.1
+    smallNodeCount: "1"
+    mediumNodeCount: "0"
+    largeNodeCount: "1"

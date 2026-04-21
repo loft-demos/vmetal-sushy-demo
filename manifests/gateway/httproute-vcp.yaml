@@ -1,6 +1,7 @@
 # httproute-vcp.yaml — HTTPRoute for vCluster Platform
 #
-# Routes vcp.VDEMO_DOMAIN → the vcluster-platform ClusterIP service.
+# Routes HTTPS traffic for vcp.VDEMO_DOMAIN → the vcluster-platform ClusterIP
+# service.
 # Lives in the vcluster-platform namespace alongside the service it routes to.
 #
 # Applied by install-vcluster.sh with VDEMO_DOMAIN_PLACEHOLDER substituted from .env.
@@ -17,6 +18,7 @@ spec:
   parentRefs:
     - name: demo-gateway
       namespace: traefik
+      sectionName: https
   hostnames:
     - "vcp.VDEMO_DOMAIN_PLACEHOLDER"
   rules:

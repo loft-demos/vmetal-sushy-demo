@@ -1,23 +1,28 @@
 #!/usr/bin/env bash
-# cache-os-image.sh — download Ubuntu OS image to local cache and (re)start image server
+# cache-os-image.sh — cache one OS image locally and generate a matching OSImage manifest
 #
 # The IPA ramdisk running inside provisioning VMs has no DNS or internet access —
 # it is isolated on the provisioning bridge (172.22.0.0/24). OS images must be
 # served from the host at PROVISION_IP so Ironic can reach them.
 #
-# This script:
-#   1. Creates the image cache directory
-#   2. Downloads the Ubuntu 24.04 minimal cloud image (idempotent — skips if present)
-#   3. Starts or restarts the image-server systemd service (see install-image-server.sh)
+# By default this caches the Ubuntu 24.04 minimal image used by this demo. It can
+# also cache additional presets or import a local custom qcow2/raw image and emit
+# a matching OSImage manifest under manifests/platform/os-images/.
 #
 # Usage:
 #   bash scripts/cache-os-image.sh
+#   bash scripts/cache-os-image.sh ubuntu-server
+#   bash scripts/cache-os-image.sh \
+#     --name ubuntu-noble-dev \
+#     --display-name "Ubuntu 24.04 LTS (Custom Dev)" \
+#     --source /path/to/custom-image.img \
+#     --filename ubuntu-24.04-dev.img
 #
-# After running, update manifests/platform/os-image.yaml to point at the local URL:
-#   http://${PROVISION_IP}:${IMAGE_SERVER_PORT}/ubuntu-24.04-minimal-cloudimg-amd64.img
+# After running, apply the generated manifest:
+#   kubectl apply -f manifests/platform/os-images/<name>.yaml
 #
-# Then re-apply the OSImage and, if a BareMetalHost is stuck in provisioning error,
-# delete and re-create it so Metal3 retries with the new URL.
+# Then point the relevant NodeProvider node types at that OSImage name:
+#   vcluster.com/os-image: <name>
 
 set -euo pipefail
 
@@ -31,56 +36,197 @@ fi
 PROVISION_IP="${PROVISION_IP:-172.22.0.1}"
 IMAGE_SERVER_PORT="${IMAGE_SERVER_PORT:-9000}"
 IMAGE_CACHE_DIR="${IMAGE_CACHE_DIR:-/srv/os-images}"
+MANIFEST_DIR="${REPO_ROOT}/manifests/platform/os-images"
 
-UBUNTU_IMAGE_URL="https://cloud-images.ubuntu.com/minimal/releases/noble/release/ubuntu-24.04-minimal-cloudimg-amd64.img"
-UBUNTU_IMAGE_FILE="ubuntu-24.04-minimal-cloudimg-amd64.img"
-UBUNTU_CHECKSUM="5c246768d1e99cebddedd31fb79a9bdc592e8bd04c90ecd252cbeb5ef9ea66ff"
+PRESET="${1:-ubuntu-minimal}"
+if [[ "${PRESET}" == -* ]]; then
+  PRESET="ubuntu-minimal"
+else
+  shift || true
+fi
+
+IMAGE_NAME=""
+DISPLAY_NAME=""
+IMAGE_URL=""
+SOURCE_PATH=""
+IMAGE_FILE=""
+EXPECTED_CHECKSUM=""
+MANIFEST_PATH=""
 
 log()  { echo "[cache-os-image] $*"; }
 die()  { echo "[cache-os-image] ERROR: $*" >&2; exit 1; }
 
-# ---------------------------------------------------------------------------
-# 1. Create image cache directory
-# ---------------------------------------------------------------------------
+usage() {
+  cat <<'EOF'
+Usage:
+  bash scripts/cache-os-image.sh [preset] [options]
+
+Presets:
+  ubuntu-minimal   Ubuntu 24.04 minimal cloud image (default)
+  ubuntu-server    Ubuntu 24.04 full server cloud image
+  custom           No preset values; requires --url or --source
+
+Options:
+  --name <name>               OSImage metadata.name
+  --display-name <label>      OSImage spec.displayName
+  --url <url>                 Download image from URL
+  --source <path>             Import an existing local image file
+  --filename <filename>       Filename to serve from IMAGE_CACHE_DIR
+  --checksum <sha256>         Expected sha256 for download/import verification
+  --manifest <path>           Output path for generated OSImage manifest
+  --help                      Show this help
+
+Examples:
+  bash scripts/cache-os-image.sh
+  bash scripts/cache-os-image.sh ubuntu-server
+  bash scripts/cache-os-image.sh \
+    --name ubuntu-noble-dev \
+    --display-name "Ubuntu 24.04 LTS (Dev Tools)" \
+    --source /tmp/ubuntu-noble-dev.img \
+    --filename ubuntu-noble-dev.img
+EOF
+}
+
+apply_preset() {
+  case "${PRESET}" in
+    ubuntu-minimal|minimal)
+      IMAGE_NAME="${IMAGE_NAME:-ubuntu-noble}"
+      DISPLAY_NAME="${DISPLAY_NAME:-Ubuntu 24.04 LTS (Minimal)}"
+      IMAGE_URL="${IMAGE_URL:-https://cloud-images.ubuntu.com/minimal/releases/noble/release/ubuntu-24.04-minimal-cloudimg-amd64.img}"
+      IMAGE_FILE="${IMAGE_FILE:-ubuntu-24.04-minimal-cloudimg-amd64.img}"
+      EXPECTED_CHECKSUM="${EXPECTED_CHECKSUM:-5c246768d1e99cebddedd31fb79a9bdc592e8bd04c90ecd252cbeb5ef9ea66ff}"
+      ;;
+    ubuntu-server|server)
+      IMAGE_NAME="${IMAGE_NAME:-ubuntu-noble-server}"
+      DISPLAY_NAME="${DISPLAY_NAME:-Ubuntu 24.04 LTS (Server)}"
+      IMAGE_URL="${IMAGE_URL:-https://cloud-images.ubuntu.com/noble/20260307/noble-server-cloudimg-amd64.img}"
+      IMAGE_FILE="${IMAGE_FILE:-noble-server-cloudimg-amd64.img}"
+      ;;
+    custom)
+      ;;
+    *)
+      die "Unknown preset '${PRESET}'. Use --help for supported presets."
+      ;;
+  esac
+}
+
+apply_preset
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --name)
+      IMAGE_NAME="${2:-}"
+      shift 2
+      ;;
+    --display-name)
+      DISPLAY_NAME="${2:-}"
+      shift 2
+      ;;
+    --url)
+      IMAGE_URL="${2:-}"
+      shift 2
+      ;;
+    --source)
+      SOURCE_PATH="${2:-}"
+      shift 2
+      ;;
+    --filename)
+      IMAGE_FILE="${2:-}"
+      shift 2
+      ;;
+    --checksum)
+      EXPECTED_CHECKSUM="${2:-}"
+      shift 2
+      ;;
+    --manifest)
+      MANIFEST_PATH="${2:-}"
+      shift 2
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      die "Unknown argument '$1'. Use --help for usage."
+      ;;
+  esac
+done
+
+if [[ -n "${IMAGE_URL}" && -n "${SOURCE_PATH}" ]]; then
+  die "Specify only one of --url or --source."
+fi
+
+if [[ -z "${IMAGE_URL}" && -z "${SOURCE_PATH}" ]]; then
+  die "No image source specified. Use a preset, --url, or --source."
+fi
+
+if [[ -z "${IMAGE_FILE}" ]]; then
+  if [[ -n "${IMAGE_URL}" ]]; then
+    IMAGE_FILE="$(basename "${IMAGE_URL}")"
+  else
+    IMAGE_FILE="$(basename "${SOURCE_PATH}")"
+  fi
+fi
+
+if [[ -z "${IMAGE_NAME}" ]]; then
+  die "--name is required when using custom image metadata."
+fi
+
+if [[ -z "${DISPLAY_NAME}" ]]; then
+  DISPLAY_NAME="${IMAGE_NAME}"
+fi
+
+if [[ -z "${MANIFEST_PATH}" ]]; then
+  MANIFEST_PATH="${MANIFEST_DIR}/${IMAGE_NAME}.yaml"
+fi
+
 if [[ ! -d "${IMAGE_CACHE_DIR}" ]]; then
   log "Creating image cache directory: ${IMAGE_CACHE_DIR}"
   sudo mkdir -p "${IMAGE_CACHE_DIR}"
 fi
 sudo chown "$(id -u):$(id -g)" "${IMAGE_CACHE_DIR}"
 
-# ---------------------------------------------------------------------------
-# 2. Download image (skip if already present and checksum matches)
-# ---------------------------------------------------------------------------
-DEST="${IMAGE_CACHE_DIR}/${UBUNTU_IMAGE_FILE}"
+DEST="${IMAGE_CACHE_DIR}/${IMAGE_FILE}"
 
-if [[ -f "${DEST}" ]]; then
-  log "Image already cached at ${DEST}, verifying checksum..."
-  actual="$(sha256sum "${DEST}" | awk '{print $1}')"
-  if [[ "${actual}" == "${UBUNTU_CHECKSUM}" ]]; then
-    log "Checksum OK — skipping download."
+if [[ -n "${SOURCE_PATH}" ]]; then
+  [[ -f "${SOURCE_PATH}" ]] || die "Local source image not found: ${SOURCE_PATH}"
+
+  if [[ "$(realpath "${SOURCE_PATH}")" == "$(realpath -m "${DEST}")" ]]; then
+    log "Using existing local image already in cache: ${DEST}"
   else
-    log "Checksum mismatch (got ${actual}), re-downloading..."
-    rm -f "${DEST}"
+    log "Importing local image into cache: ${SOURCE_PATH} -> ${DEST}"
+    cp "${SOURCE_PATH}" "${DEST}.tmp"
+    mv "${DEST}.tmp" "${DEST}"
+  fi
+else
+  if [[ -f "${DEST}" ]]; then
+    if [[ -n "${EXPECTED_CHECKSUM}" ]]; then
+      log "Image already cached at ${DEST}, verifying checksum..."
+      actual="$(sha256sum "${DEST}" | awk '{print $1}')"
+      if [[ "${actual}" == "${EXPECTED_CHECKSUM}" ]]; then
+        log "Checksum OK — skipping download."
+      else
+        log "Checksum mismatch (got ${actual}), re-downloading..."
+        rm -f "${DEST}"
+      fi
+    else
+      log "Image already cached at ${DEST} with no expected upstream checksum provided — reusing it."
+    fi
+  fi
+
+  if [[ ! -f "${DEST}" ]]; then
+    log "Downloading image from ${IMAGE_URL}"
+    curl -fL --progress-bar "${IMAGE_URL}" -o "${DEST}.tmp"
+    mv "${DEST}.tmp" "${DEST}"
   fi
 fi
 
-if [[ ! -f "${DEST}" ]]; then
-  log "Downloading Ubuntu 24.04 minimal cloud image (~500 MB)..."
-  curl -fL --progress-bar "${UBUNTU_IMAGE_URL}" -o "${DEST}.tmp"
-  actual="$(sha256sum "${DEST}.tmp" | awk '{print $1}')"
-  if [[ "${actual}" != "${UBUNTU_CHECKSUM}" ]]; then
-    rm -f "${DEST}.tmp"
-    die "Downloaded image checksum mismatch: expected ${UBUNTU_CHECKSUM}, got ${actual}"
-  fi
-  mv "${DEST}.tmp" "${DEST}"
-  log "Download complete and checksum verified."
+ACTUAL_CHECKSUM="$(sha256sum "${DEST}" | awk '{print $1}')"
+if [[ -n "${EXPECTED_CHECKSUM}" && "${ACTUAL_CHECKSUM}" != "${EXPECTED_CHECKSUM}" ]]; then
+  die "Image checksum mismatch: expected ${EXPECTED_CHECKSUM}, got ${ACTUAL_CHECKSUM}"
 fi
 
-# ---------------------------------------------------------------------------
-# 3. Start or restart the image server
-# ---------------------------------------------------------------------------
 SERVICE_FILE="/etc/systemd/system/os-image-server.service"
-
 if [[ ! -f "${SERVICE_FILE}" ]]; then
   log "Image server service not installed — installing now..."
   bash "${REPO_ROOT}/scripts/install-image-server.sh"
@@ -91,7 +237,6 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now os-image-server
 sudo systemctl restart os-image-server
 
-# Give it a moment to come up
 sleep 1
 
 if ! sudo systemctl is-active --quiet os-image-server; then
@@ -101,10 +246,7 @@ if ! sudo systemctl is-active --quiet os-image-server; then
 fi
 log "os-image-server is running."
 
-# ---------------------------------------------------------------------------
-# 4. Verify the image is reachable
-# ---------------------------------------------------------------------------
-LOCAL_URL="http://${PROVISION_IP}:${IMAGE_SERVER_PORT}/${UBUNTU_IMAGE_FILE}"
+LOCAL_URL="http://${PROVISION_IP}:${IMAGE_SERVER_PORT}/${IMAGE_FILE}"
 log "Verifying image URL: ${LOCAL_URL}"
 if curl -fsSI "${LOCAL_URL}" > /dev/null 2>&1; then
   log "Image is reachable at ${LOCAL_URL}"
@@ -112,25 +254,37 @@ else
   die "Image not reachable at ${LOCAL_URL} — check os-image-server logs: journalctl -u os-image-server"
 fi
 
-# ---------------------------------------------------------------------------
-# 5. Print next steps
-# ---------------------------------------------------------------------------
+mkdir -p "$(dirname "${MANIFEST_PATH}")"
+cat > "${MANIFEST_PATH}" <<EOF
+# Generated by scripts/cache-os-image.sh
+apiVersion: management.loft.sh/v1
+kind: OSImage
+metadata:
+  name: ${IMAGE_NAME}
+spec:
+  displayName: "${DISPLAY_NAME}"
+  properties:
+    metal3.vcluster.com/image-url: "${LOCAL_URL}"
+    metal3.vcluster.com/image-checksum: "${ACTUAL_CHECKSUM}"
+    metal3.vcluster.com/image-checksum-type: "sha256"
+EOF
+
 echo ""
 echo "====================================================================="
 echo " OS image cached and served locally."
 echo ""
-echo " Local URL: ${LOCAL_URL}"
-echo " Checksum:  ${UBUNTU_CHECKSUM} (sha256)"
+echo " Image name : ${IMAGE_NAME}"
+echo " Display    : ${DISPLAY_NAME}"
+echo " Local URL  : ${LOCAL_URL}"
+echo " Checksum   : ${ACTUAL_CHECKSUM} (sha256)"
+echo " Manifest   : ${MANIFEST_PATH}"
 echo ""
-echo " Update manifests/platform/os-image.yaml:"
-echo "   metal3.vcluster.com/image-url: \"${LOCAL_URL}\""
+echo " Apply the generated OSImage:"
+echo "   kubectl apply -f ${MANIFEST_PATH}"
 echo ""
-echo " Then re-apply the OSImage:"
-echo "   kubectl apply -f manifests/platform/os-image.yaml"
+echo " To use it for new machines, point NodeProvider node types at:"
+echo "   vcluster.com/os-image: ${IMAGE_NAME}"
 echo ""
-echo " If a BareMetalHost is stuck in provisioning error, move it back to"
-echo " available so the NodeClaim re-triggers provisioning:"
-echo "   kubectl annotate bmh <name> -n metal3-system \\"
-echo "     metal3.io/reprovisioning.start='' --overwrite"
-echo " Or delete the NodeClaim and let vCluster Platform recreate it."
+echo " Existing default manifest remains available at:"
+echo "   manifests/platform/os-image.yaml"
 echo "====================================================================="

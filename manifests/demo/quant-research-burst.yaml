@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quant-research-burst
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: quant-research-burst
+  template:
+    metadata:
+      labels:
+        app: quant-research-burst
+    spec:
+      containers:
+        - name: worker
+          image: busybox:1.36
+          command: ["sh", "-c", "echo 'simulating long-running research job'; sleep 36000"]
+          resources:
+            requests:
+              cpu: "3500m"
+              memory: 6Gi
+            limits:
+              cpu: "3500m"
+              memory: 6Gi

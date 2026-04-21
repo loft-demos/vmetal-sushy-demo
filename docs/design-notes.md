@@ -10,7 +10,9 @@ This keeps the setup to a single machine with a single install step for the cont
 
 ## Why Sushy Tools over VirtualBMC
 
-VirtualBMC emulates IPMI, the older out-of-band management protocol. Metal3 and Ironic support IPMI, but they have moved toward Redfish as the preferred protocol for newer hardware. Sushy Tools emulates Redfish, which is what this demo uses.
+OpenStack VirtualBMC emulates IPMI, the older out-of-band management protocol. Metal3 and Ironic support IPMI, but they have moved toward Redfish as the preferred protocol for newer hardware. Sushy Tools emulates Redfish, which is what this demo uses.
+
+Naming caveat: some KubeVirt-based demos use a different component named `virtbmc` (for example, KubeVirtBMC) that can expose Redfish. That is not the same project as OpenStack VirtualBMC. In this repository, when we compare emulator choices, "VirtualBMC" means the OpenStack IPMI tool.
 
 Practical reasons to prefer Sushy Tools for this demo:
 - Redfish is what Metal3/Ironic defaults to and is better tested in recent releases.
@@ -78,16 +80,32 @@ No suitable device found for hints {'name': '== /dev/sda'}
 
 ---
 
-## VirtualClusterTemplate and the upgrade demo path
+## VirtualClusterTemplate variants and the upgrade demo path
 
-The demo uses a `VirtualClusterTemplate` (`manifests/platform/vmetal-template.yaml`) to parameterize bare metal vClusters. Two parameters are exposed:
+The demo now ships with two `VirtualClusterTemplate` variants:
+
+### Dynamic template
+
+`manifests/platform/vmetal-template.yaml` models an on-demand pool with Auto Nodes dynamic scaling. It exposes these parameters:
 
 | Parameter | Purpose | Default | Options |
 |---|---|---|---|
 | `kubernetesVersion` | K8s control plane version | `v1.34.1` | `v1.34.1`, `v1.35.0` |
-| `cpuLimit` | Maximum CPUs that can be provisioned by this node pool | `5` | `2`, `5`, `10` |
+| `nodeType` | BareMetalHost class to target | `small-node` | `small-node`, `medium-node`, `large-node` |
+| `cpuLimit` | Maximum CPUs that can be provisioned by this node pool | `5` | `2`, `3`, `5`, `6`, `10` |
 
-The template renders into a vCluster Helm release using `controlPlane.distro.k8s.version` to set the K8s version. This enables a live upgrade demo:
+### Static template
+
+`manifests/platform/vmetal-static-template.yaml` models fixed-size pools that are closer to the reserved-capacity pattern we usually see in AI clouds. It exposes one quantity parameter per node type:
+
+| Parameter | Purpose | Default | Options |
+|---|---|---|---|
+| `kubernetesVersion` | K8s control plane version | `v1.34.1` | `v1.34.1`, `v1.35.0` |
+| `smallNodeCount` | Number of `small-node` workers to keep present | `1` | `0`, `1`, `2`, `3` |
+| `mediumNodeCount` | Number of `medium-node` workers to keep present | `0` | `0`, `1` |
+| `largeNodeCount` | Number of `large-node` workers to keep present | `1` | `0`, `1`, `2` |
+
+Both templates render into a vCluster Helm release using `controlPlane.distro.k8s.version` to set the K8s version. This enables a live upgrade demo:
 
 1. Create the vCluster at `v1.34.1` (one small bare metal node)
 2. Edit `manifests/platform/vcluster-vmetal.yaml`: change `kubernetesVersion` to `v1.35.0`
@@ -95,7 +113,9 @@ The template renders into a vCluster Helm release using `controlPlane.distro.k8s
 4. vCluster Platform re-renders the Helm release and performs a rolling control plane upgrade
 5. Watch the upgrade in the Platform UI under vmetal-demo → Status
 
-This shows that the Kubernetes version is just a parameter — the vMetal bare metal node continues running through a control plane upgrade without reprovisioning.
+The same upgrade flow works for `manifests/platform/vcluster-vmetal-static.yaml`; only the worker-pool shape differs.
+
+This shows that the Kubernetes version is just a parameter. The vMetal bare metal nodes continue running through a control plane upgrade without reprovisioning the workers solely because the control plane version changes.
 
 ---
 

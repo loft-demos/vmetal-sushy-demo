@@ -1,19 +1,18 @@
 #!/usr/bin/env bash
-# setup-mac-dns.sh — configure macOS to resolve *.VDEMO_DOMAIN via the demo host
+# setup-mac-dns.sh - configure macOS to resolve *.VDEMO_DOMAIN via a chosen DNS server
 #
-# Creates /etc/resolver/<VDEMO_DOMAIN> pointing at the MINISFORUM's LAN IP.
-# macOS reads per-domain resolver files from /etc/resolver/ and forwards all
-# queries for that domain (including wildcards) to the listed nameserver.
+# Creates /etc/resolver/<VDEMO_DOMAIN> so macOS forwards all queries for that
+# domain (including wildcards) to a specific nameserver.
 #
-# This means every *.vdemo.local hostname (vcp.vdemo.local, argocd.vdemo.local,
-# grafana.vdemo.local, ...) resolves automatically — no /etc/hosts entries needed.
+# Default mode uses the MINISFORUM's LAN IP. Optional modes let you switch to a
+# Tailscale-reachable DNS server, inspect the current setup, or remove it.
 #
-# Prerequisites:
-#   - install-dnsmasq.sh has been run on the MINISFORUM host
-#   - The MINISFORUM is reachable on the LAN
-#
-# Run this on your Mac (not on the MINISFORUM):
+# Common usage on your Mac:
 #   bash hack/setup-mac-dns.sh
+#   bash hack/setup-mac-dns.sh lan
+#   bash hack/setup-mac-dns.sh tailscale 100.x.y.z
+#   bash hack/setup-mac-dns.sh status
+#   bash hack/setup-mac-dns.sh off
 #
 # To remove later:
 #   sudo rm /etc/resolver/<VDEMO_DOMAIN>
@@ -23,8 +22,15 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+MODE="${1:-lan}"
+DNS_SERVER_OVERRIDE="${2:-}"
+EXPECTED_IP_OVERRIDE="${3:-}"
+
 VDEMO_DOMAIN="${VDEMO_DOMAIN:-vdemo.local}"
 LAN_IP="${LAN_IP:-}"          # IP of the MINISFORUM on your LAN (where dnsmasq listens)
+GATEWAY_IP="${GATEWAY_IP:-}"  # IP returned for *.VDEMO_DOMAIN by dnsmasq/MetalLB
+TAILSCALE_DNS_IP="${TAILSCALE_DNS_IP:-}"            # Optional Tailscale IP of a DNS server for *.VDEMO_DOMAIN
+TAILSCALE_EXPECTED_IP="${TAILSCALE_EXPECTED_IP:-}"  # Optional expected answer in tailscale mode
 VCP_LOFT_HOST="${VCP_LOFT_HOST:-vcp.vdemo.local}"
 
 if [[ -f "${REPO_ROOT}/.env" ]]; then
@@ -40,90 +46,183 @@ if [[ "$(uname)" != "Darwin" ]]; then
   exit 1
 fi
 
-if [[ -z "${LAN_IP}" ]]; then
-  echo "ERROR: LAN_IP is not set in .env (the MINISFORUM's LAN IP address where dnsmasq listens)." >&2
-  echo "  Add to .env:  LAN_IP=192.168.1.x" >&2
-  exit 1
-fi
-
 RESOLVER_DIR="/etc/resolver"
 RESOLVER_FILE="${RESOLVER_DIR}/${VDEMO_DOMAIN}"
 
-echo ""
-echo "====================================================================="
-echo " macOS DNS setup for *.${VDEMO_DOMAIN}"
-echo " Nameserver : ${LAN_IP} (dnsmasq on MINISFORUM)"
-echo " Resolver   : ${RESOLVER_FILE}"
-echo "====================================================================="
-echo ""
+flush_cache() {
+  echo "Flushing macOS DNS cache..."
+  sudo dscacheutil -flushcache
+  sudo killall -HUP mDNSResponder 2>/dev/null || true
+  echo "Done."
+  echo ""
+}
 
-# ---------------------------------------------------------------------------
-# Create /etc/resolver/<VDEMO_DOMAIN>
-# ---------------------------------------------------------------------------
-if [[ -f "${RESOLVER_FILE}" ]]; then
-  existing=$(grep -E '^nameserver' "${RESOLVER_FILE}" 2>/dev/null | awk '{print $2}' | head -1 || true)
-  if [[ "${existing}" == "${LAN_IP}" ]]; then
-    echo "Already configured: ${RESOLVER_FILE} already points to ${LAN_IP}"
+print_status() {
+  echo ""
+  echo "====================================================================="
+  echo " macOS DNS status for *.${VDEMO_DOMAIN}"
+  echo " Resolver   : ${RESOLVER_FILE}"
+  echo "====================================================================="
+  if [[ -f "${RESOLVER_FILE}" ]]; then
+    cat "${RESOLVER_FILE}"
     echo ""
+    current_nameserver=$(awk '/^nameserver /{print $2; exit}' "${RESOLVER_FILE}" 2>/dev/null || true)
+    if [[ -n "${current_nameserver}" ]]; then
+      echo " Current nameserver: ${current_nameserver}"
+    fi
   else
-    echo "Updating ${RESOLVER_FILE} (was: ${existing}, now: ${LAN_IP})..."
+    echo " Resolver file is not present."
+  fi
+  echo ""
+
+  resolved=$(resolve_host "${VCP_LOFT_HOST}" || true)
+  if [[ -n "${resolved}" ]]; then
+    echo " ${VCP_LOFT_HOST} -> ${resolved}"
+  else
+    echo " ${VCP_LOFT_HOST} is not resolving right now"
+  fi
+  echo "====================================================================="
+}
+
+resolve_host() {
+  local host="$1"
+
+  if command -v dscacheutil >/dev/null 2>&1; then
+    dscacheutil -q host -a name "${host}" 2>/dev/null \
+      | awk '/^ip_address: /{print $2}' \
+      | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/{print; exit}'
+    return
+  fi
+
+  if command -v dig >/dev/null 2>&1; then
+    dig +short "${host}" 2>/dev/null \
+      | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/{print; exit}'
+  fi
+}
+
+write_resolver() {
+  local mode="$1"
+  local nameserver="$2"
+
+  echo ""
+  echo "====================================================================="
+  echo " macOS DNS setup for *.${VDEMO_DOMAIN}"
+  echo " Mode       : ${mode}"
+  echo " Nameserver : ${nameserver}"
+  echo " Resolver   : ${RESOLVER_FILE}"
+  echo "====================================================================="
+  echo ""
+
+  if [[ -f "${RESOLVER_FILE}" ]]; then
+    existing=$(awk '/^nameserver /{print $2; exit}' "${RESOLVER_FILE}" 2>/dev/null || true)
+    if [[ "${existing}" == "${nameserver}" ]]; then
+      echo "Already configured: ${RESOLVER_FILE} already points to ${nameserver}"
+      echo ""
+    else
+      echo "Updating ${RESOLVER_FILE} (was: ${existing}, now: ${nameserver})..."
+      sudo tee "${RESOLVER_FILE}" > /dev/null <<EOF
+# vmetal-sushy-demo: wildcard DNS for *.${VDEMO_DOMAIN}
+# Managed by hack/setup-mac-dns.sh
+nameserver ${nameserver}
+EOF
+      echo "Updated."
+      echo ""
+    fi
+  else
+    echo "Creating ${RESOLVER_FILE}..."
+    sudo mkdir -p "${RESOLVER_DIR}"
     sudo tee "${RESOLVER_FILE}" > /dev/null <<EOF
 # vmetal-sushy-demo: wildcard DNS for *.${VDEMO_DOMAIN}
-# Managed by hack/setup-mac-dns.sh — remove with: sudo rm ${RESOLVER_FILE}
-nameserver ${LAN_IP}
+# Managed by hack/setup-mac-dns.sh
+nameserver ${nameserver}
 EOF
-    echo "Updated."
+    echo "Created."
     echo ""
   fi
-else
-  echo "Creating ${RESOLVER_FILE}..."
-  sudo mkdir -p "${RESOLVER_DIR}"
-  sudo tee "${RESOLVER_FILE}" > /dev/null <<EOF
-# vmetal-sushy-demo: wildcard DNS for *.${VDEMO_DOMAIN}
-# Managed by hack/setup-mac-dns.sh — remove with: sudo rm ${RESOLVER_FILE}
-nameserver ${LAN_IP}
-EOF
-  echo "Created."
+}
+
+verify_resolution() {
+  local nameserver="$1"
+  local expected_ip="$2"
+
+  if [[ -n "${expected_ip}" ]]; then
+    echo "Verifying: ${VCP_LOFT_HOST} should resolve to ${expected_ip}..."
+  else
+    echo "Verifying: ${VCP_LOFT_HOST} resolves through ${nameserver}..."
+  fi
+  sleep 1
+
+  resolved=$(resolve_host "${VCP_LOFT_HOST}" || true)
+
+  if [[ -n "${expected_ip}" && "${resolved}" == "${expected_ip}" ]]; then
+    echo "  OK: ${VCP_LOFT_HOST} -> ${resolved}"
+  elif [[ -z "${expected_ip}" && -n "${resolved}" ]]; then
+    echo "  OK: ${VCP_LOFT_HOST} -> ${resolved}"
+  else
+    if [[ -n "${expected_ip}" ]]; then
+      echo "  WARNING: got '${resolved}', expected '${expected_ip}'"
+    else
+      echo "  WARNING: ${VCP_LOFT_HOST} did not resolve"
+    fi
+    echo "  If you are using a different DNS or routed IP over Tailscale,"
+    echo "  set TAILSCALE_EXPECTED_IP or pass it as the third argument."
+  fi
+
   echo ""
-fi
+  echo "====================================================================="
+  echo " Setup complete."
+  echo ""
+  echo " All *.${VDEMO_DOMAIN} queries now use ${nameserver} as the DNS server."
+  echo " No /etc/hosts entries needed."
+  echo ""
+  echo " Platform UI (once vCluster is running):"
+  echo "   https://${VCP_LOFT_HOST}"
+  echo ""
+  echo " Other modes:"
+  echo "   bash hack/setup-mac-dns.sh lan"
+  echo "   bash hack/setup-mac-dns.sh tailscale <tailscale-dns-ip> [expected-ip]"
+  echo "   bash hack/setup-mac-dns.sh status"
+  echo "   bash hack/setup-mac-dns.sh off"
+  echo "====================================================================="
+}
 
-# ---------------------------------------------------------------------------
-# Flush DNS cache
-# ---------------------------------------------------------------------------
-echo "Flushing macOS DNS cache..."
-sudo dscacheutil -flushcache
-sudo killall -HUP mDNSResponder 2>/dev/null || true
-echo "Done."
-echo ""
+case "${MODE}" in
+  lan)
+    if [[ -z "${LAN_IP}" ]]; then
+      echo "ERROR: LAN_IP is not set in .env (the MINISFORUM's LAN IP address where dnsmasq listens)." >&2
+      echo "  Add to .env:  LAN_IP=192.168.1.x" >&2
+      exit 1
+    fi
+    DNS_SERVER="${DNS_SERVER_OVERRIDE:-${LAN_IP}}"
+    EXPECTED_IP="${EXPECTED_IP_OVERRIDE:-${GATEWAY_IP:-}}"
+    ;;
+  tailscale)
+    DNS_SERVER="${DNS_SERVER_OVERRIDE:-${TAILSCALE_DNS_IP:-}}"
+    EXPECTED_IP="${EXPECTED_IP_OVERRIDE:-${TAILSCALE_EXPECTED_IP:-${GATEWAY_IP:-}}}"
+    if [[ -z "${DNS_SERVER}" ]]; then
+      echo "ERROR: tailscale mode needs a DNS server IP." >&2
+      echo "  Set TAILSCALE_DNS_IP in .env or run:" >&2
+      echo "  bash hack/setup-mac-dns.sh tailscale <tailscale-dns-ip> [expected-ip]" >&2
+      exit 1
+    fi
+    ;;
+  status)
+    print_status
+    exit 0
+    ;;
+  off)
+    echo "Removing ${RESOLVER_FILE}..."
+    sudo rm -f "${RESOLVER_FILE}"
+    flush_cache
+    print_status
+    exit 0
+    ;;
+  *)
+    echo "Usage: bash hack/setup-mac-dns.sh [lan|tailscale|status|off] [dns-server-ip] [expected-ip]" >&2
+    exit 1
+    ;;
+esac
 
-# ---------------------------------------------------------------------------
-# Verify resolution
-# ---------------------------------------------------------------------------
-echo "Verifying: ${VCP_LOFT_HOST} should resolve to ${LAN_IP}..."
-sleep 1   # give mDNSResponder a moment to reload
-
-resolved=$(dig +short "${VCP_LOFT_HOST}" 2>/dev/null | tail -1 || true)
-
-if [[ "${resolved}" == "${LAN_IP}" ]]; then
-  echo "  OK: ${VCP_LOFT_HOST} → ${resolved}"
-else
-  echo "  WARNING: got '${resolved}', expected '${LAN_IP}'"
-  echo "  This may be normal if dnsmasq is not yet running on the MINISFORUM."
-  echo "  Run:  bash scripts/install-dnsmasq.sh   (on the MINISFORUM)"
-  echo "  Then re-run this script to re-verify."
-fi
-
-echo ""
-echo "====================================================================="
-echo " Setup complete."
-echo ""
-echo " All *.${VDEMO_DOMAIN} hostnames now resolve via ${LAN_IP}."
-echo " No /etc/hosts entries needed."
-echo ""
-echo " Platform UI (once vCluster is running):"
-echo "   http://${VCP_LOFT_HOST}"
-echo ""
-echo " To remove later:"
-echo "   sudo rm ${RESOLVER_FILE}"
-echo "   sudo dscacheutil -flushcache && sudo killall -HUP mDNSResponder"
-echo "====================================================================="
+write_resolver "${MODE}" "${DNS_SERVER}"
+flush_cache
+verify_resolution "${DNS_SERVER}" "${EXPECTED_IP}"

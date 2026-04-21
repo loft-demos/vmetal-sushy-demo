@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# install-vcluster.sh — install vCluster Standalone with vCluster Platform + Gateway
+# install-vcluster.sh — install vCluster Standalone with vCluster Platform + HTTPS Gateway
 #
 # Renders configs/vcluster.yaml from .env, runs the vCluster Standalone install,
 # then applies post-install resources:
 #   1. MetalLB IPAddressPool + L2Advertisement  → gives Gateway its LAN IP
-#   2. Envoy GatewayClass + Gateway             → wildcard *.VDEMO_DOMAIN listener
-#   3. HTTPRoute for vcp.VDEMO_DOMAIN           → routes to vcluster-platform svc
+#   2. cert-manager Issuer + Certificate        → wildcard TLS for *.VDEMO_DOMAIN
+#   3. GatewayClass + Gateway                   → wildcard HTTP+HTTPS listeners
+#   4. HTTP redirect + HTTPS route for Platform → vcp.VDEMO_DOMAIN
 #
 # Prerequisites:
 #   - .env exists with VCP_LICENSE_TOKEN, VCP_LOFT_HOST, GATEWAY_IP,
@@ -36,6 +37,7 @@ VDEMO_DOMAIN="${VDEMO_DOMAIN:-vdemo.local}"
 GATEWAY_IP="${GATEWAY_IP:-}"
 METALLB_IP_RANGE="${METALLB_IP_RANGE:-}"
 TRAEFIK_VERSION="${TRAEFIK_VERSION:-39.0.6}"
+IMAGE_CACHE_DIR="${IMAGE_CACHE_DIR:-/srv/os-images}"
 
 if [[ -f "${REPO_ROOT}/.env" ]]; then
   # shellcheck source=/dev/null
@@ -93,7 +95,7 @@ echo "====================================================================="
 echo " Installing vCluster Standalone + vCluster Platform"
 echo " K8s          : ${K8S_VERSION}"
 echo " Platform     : ${VCP_PLATFORM_VERSION} → ${VCP_LOFT_HOST}"
-echo " Gateway      : Traefik ${TRAEFIK_VERSION} (*.${VDEMO_DOMAIN} → ${GATEWAY_IP})"
+echo " Gateway      : Traefik ${TRAEFIK_VERSION} (*.${VDEMO_DOMAIN} → ${GATEWAY_IP}, HTTPS)"
 echo "====================================================================="
 echo ""
 
@@ -182,7 +184,33 @@ spec:
 EOF
 
 # ---------------------------------------------------------------------------
-# 2. GatewayClass + Gateway
+# 2. Wildcard TLS certificate for the Gateway
+# ---------------------------------------------------------------------------
+log "Waiting for cert-manager CRDs..."
+wait_for_crd "issuers.cert-manager.io"
+wait_for_crd "certificates.cert-manager.io"
+
+log "Waiting for cert-manager controller and webhook..."
+wait_for_deployment "cert-manager" "cert-manager"
+wait_for_deployment "cert-manager" "cert-manager-webhook"
+wait_for_endpoints "cert-manager" "cert-manager-webhook"
+
+log "Applying self-signed wildcard TLS for *.${VDEMO_DOMAIN}..."
+sed "s|VDEMO_DOMAIN_PLACEHOLDER|${VDEMO_DOMAIN}|g" \
+  "${REPO_ROOT}/manifests/gateway/tls-wildcard.yaml" \
+  | ${KC} apply -f -
+
+log "Waiting for wildcard certificate to become Ready..."
+${KC} -n traefik wait --for=condition=Ready certificate/vdemo-wildcard-cert --timeout=180s
+
+log "Publishing platform certificate for Private Node trust bootstrap..."
+sudo mkdir -p "${IMAGE_CACHE_DIR}"
+${KC} -n traefik get secret vdemo-wildcard-tls -o jsonpath='{.data.tls\.crt}' \
+  | base64 -d | sudo tee "${IMAGE_CACHE_DIR}/vdemo-platform.crt" > /dev/null
+sudo chmod 0644 "${IMAGE_CACHE_DIR}/vdemo-platform.crt"
+
+# ---------------------------------------------------------------------------
+# 3. GatewayClass + Gateway + HTTPRoute resources
 # ---------------------------------------------------------------------------
 log "Waiting for Gateway API CRDs (installed by Traefik)..."
 wait_for_crd "gatewayclasses.gateway.networking.k8s.io"
@@ -196,6 +224,7 @@ log "Applying GatewayClass and Gateway (*.${VDEMO_DOMAIN})..."
 for manifest in \
   "${REPO_ROOT}/manifests/gateway/gatewayclass.yaml" \
   "${REPO_ROOT}/manifests/gateway/gateway.yaml" \
+  "${REPO_ROOT}/manifests/gateway/httproute-http-redirect.yaml" \
   "${REPO_ROOT}/manifests/gateway/httproute-vcp.yaml"
 do
   sed "s|VDEMO_DOMAIN_PLACEHOLDER|${VDEMO_DOMAIN}|g" "${manifest}" \
@@ -203,7 +232,7 @@ do
 done
 
 # ---------------------------------------------------------------------------
-# 3. Wait for Gateway to get its external IP from MetalLB
+# 4. Wait for Gateway to get its external IP from MetalLB
 # ---------------------------------------------------------------------------
 log "Waiting for Gateway to receive IP ${GATEWAY_IP} from MetalLB..."
 for i in $(seq 1 30); do
@@ -213,7 +242,7 @@ for i in $(seq 1 30); do
     log "Gateway IP confirmed: ${gw_ip}"
     break
   fi
-  [[ "${i}" -eq 30 ]] && warn "Gateway did not receive IP after 60s — check MetalLB and Envoy Gateway pods"
+  [[ "${i}" -eq 30 ]] && warn "Gateway did not receive IP after 60s — check MetalLB and Traefik pods"
   sleep 2
 done
 
@@ -246,5 +275,8 @@ echo " Mac DNS setup (if not done yet):"
 echo "   bash hack/setup-mac-dns.sh"
 echo ""
 echo " Platform UI (once pods are ready):"
-echo "   http://${VCP_LOFT_HOST}"
+echo "   https://${VCP_LOFT_HOST}"
+echo ""
+echo " CLI login (self-signed cert):"
+echo "   vcluster platform login https://${VCP_LOFT_HOST} --insecure"
 echo "====================================================================="

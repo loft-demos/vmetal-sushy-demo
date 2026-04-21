@@ -1,0 +1,32 @@
+# tls-wildcard.yaml — self-signed wildcard TLS for the local demo domain
+#
+# install-vcluster.sh substitutes VDEMO_DOMAIN_PLACEHOLDER from .env before
+# applying. The resulting Secret is consumed by the HTTPS listener on
+# manifests/gateway/gateway.yaml.
+
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: vdemo-selfsigned
+  namespace: traefik
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: vdemo-wildcard-cert
+  namespace: traefik
+spec:
+  secretName: vdemo-wildcard-tls
+  commonName: "vcp.VDEMO_DOMAIN_PLACEHOLDER"
+  dnsNames:
+    - "vcp.VDEMO_DOMAIN_PLACEHOLDER"
+    - "*.VDEMO_DOMAIN_PLACEHOLDER"
+  subject:
+    organizations:
+      - vmetal-sushy-demo
+  issuerRef:
+    group: cert-manager.io
+    kind: Issuer
+    name: vdemo-selfsigned

@@ -1,0 +1,59 @@
+apiVersion: management.loft.sh/v1
+kind: VirtualClusterInstance
+metadata:
+  name: standalone-vcluster
+  namespace: p-default
+spec:
+  displayName: standalone-vcluster
+  owner:
+    user: admin
+  template:
+    metadata: {}
+    instanceTemplate:
+      metadata: {}
+    pro: {}
+    helmRelease:
+      chart:
+        version: 0.33.1
+      values: |
+        controlPlane:
+          backingStore:
+            etcd:
+              embedded:
+                enabled: true
+          distro:
+            k8s:
+              image:
+                tag: v1.35.4
+          standalone:
+            enabled: true
+            autoNodes:
+              provider: metal3-provider
+              quantity: 1
+              nodeTypeSelector:
+                - property: node.kubernetes.io/instance-type
+                  operator: In
+                  values:
+                    - metal3-provider.small-node
+        privateNodes:
+          enabled: true
+          autoNodes:
+            - provider: metal3-provider
+              static:
+                - name: node-pool-1
+                  quantity: 1
+                  nodeTypeSelector:
+                    - property: node.kubernetes.io/instance-type
+                      operator: In
+                      values:
+                        - metal3-provider.large-node
+        networking:
+          podCIDR: 10.64.0.0/16
+          serviceCIDR: 10.128.0.0/16
+    accessPoint:
+      ingress: {}
+    spaceTemplate:
+      metadata: {}
+  clusterRef: {}
+  networkPeer: true
+  standalone: true

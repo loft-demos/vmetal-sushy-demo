@@ -23,6 +23,74 @@ metadata:
 spec:
   displayName: "vMetal Demo - Metal3 Provider"
 
+  properties:
+    vcluster.com/ssh-keys: admin-macbook
+    vcluster.com/user-data: |
+      #cloud-config
+      package_update: true
+      packages:
+        - ca-certificates
+        - curl
+        - htop
+      write_files:
+        - path: /etc/vcluster-common
+          permissions: "0644"
+          content: |
+            common config
+        - path: /usr/local/bin/configure-vdemo-node-bootstrap
+          permissions: "0755"
+          content: |
+            #!/bin/sh
+            set -eu
+
+            iface="$(ip route show default 0.0.0.0/0 | awk 'NR==1 {print $5}')"
+            [ -n "${iface}" ] || exit 1
+
+            # systemd-resolved does not route *.local to unicast DNS unless the
+            # suffix is configured explicitly as a search or routing domain for
+            # the interface that owns the DNS server.
+            resolvectl domain "${iface}" '~vdemo.local'
+            # Route-only domains disable the link's implicit default-route
+            # behavior unless we set it back explicitly.
+            resolvectl default-route "${iface}" yes
+
+            cert_tmp="$(mktemp)"
+            tries=0
+            while true; do
+              if curl -fsSL "http://172.22.0.1:9000/vdemo-platform.crt" -o "${cert_tmp}"; then
+                break
+              fi
+              tries=$((tries + 1))
+              if [ "${tries}" -ge 20 ]; then
+                echo "failed to download platform certificate after ${tries} attempts" >&2
+                exit 1
+              fi
+              sleep 3
+            done
+
+            install -D -m 0644 "${cert_tmp}" /usr/local/share/ca-certificates/vdemo-platform.crt
+            rm -f "${cert_tmp}"
+            update-ca-certificates
+            systemctl try-restart vcluster || true
+        - path: /etc/systemd/system/vdemo-resolved-domain.service
+          permissions: "0644"
+          content: |
+            [Unit]
+            Description=Configure vdemo.local DNS routing and trust the platform certificate
+            Wants=network-online.target
+            After=network-online.target systemd-resolved.service
+
+            [Service]
+            Type=oneshot
+            ExecStart=/usr/local/bin/configure-vdemo-node-bootstrap
+            RemainAfterExit=yes
+
+            [Install]
+            WantedBy=multi-user.target
+      runcmd:
+        - systemctl daemon-reload
+        - systemctl enable --now vdemo-resolved-domain.service
+
   metal3:
     # clusterRef identifies the connected host cluster where Metal3 and Ironic
     # will be deployed. Update `cluster` to match the name of the connected
@@ -70,6 +138,9 @@ spec:
     # The selector.matchLabels must match labels on BareMetalHost resources.
     # resources + properties (cpu/memory) declare node capacity so Karpenter
     # can make scale-from-zero scheduling decisions for dynamic node pools.
+    # Each node type also gets an in-built property:
+    #   vcluster.com/node-type = <node type name>
+    # That lets a vCluster target one specific machine class cleanly.
     nodeTypes:
       - name: small-node
         resources:
@@ -84,6 +155,20 @@ spec:
           vcluster.com/os-image: ubuntu-noble
           vcluster.com/cpu: "2"
           vcluster.com/memory: 4Gi
+
+      - name: medium-node
+        resources:
+          cpu: "3"
+          memory: 6Gi
+        bareMetalHosts:
+          selector:
+            matchLabels:
+              demo: vmetal
+              vmetal-size: medium
+        properties:
+          vcluster.com/os-image: ubuntu-noble
+          vcluster.com/cpu: "3"
+          vcluster.com/memory: 6Gi
 
       - name: large-node
         resources:
