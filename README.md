@@ -21,6 +21,7 @@ Naming note: this demo uses OpenStack **Sushy Tools** for Redfish. That is diffe
 ```text
                                    +-----------------------------------+
                                    |         vCluster Platform         |
+                                   |   running on vCluster Standalone  |
                                    |                                   |
                                    |   Bare Metal / vMetal feature     |
                                    +-------------------+---------------+
