@@ -107,8 +107,8 @@ The demo now ships with two `VirtualClusterTemplate` variants:
 
 Both templates render into a vCluster Helm release using `controlPlane.distro.k8s.version` to set the K8s version. This enables a live upgrade demo:
 
-1. Create the vCluster at `v1.34.1` (one small bare metal node)
-2. Edit `manifests/platform/vcluster-vmetal.yaml`: change `kubernetesVersion` to `v1.35.0`
+1. Create the vCluster at `v1.34.7` (one small bare metal node)
+2. Edit `manifests/platform/vcluster-vmetal.yaml`: change `kubernetesVersion` to `v1.35.4`
 3. `kubectl apply -f manifests/platform/vcluster-vmetal.yaml`
 4. vCluster Platform re-renders the Helm release and performs a rolling control plane upgrade
 5. Watch the upgrade in the Platform UI under vmetal-demo → Status
