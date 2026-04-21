@@ -42,8 +42,8 @@ Naming note: this demo uses OpenStack **Sushy Tools** for Redfish. That is diffe
                                                        v
                                    +-----------------------------------+
                                    |          libvirt / KVM VMs        |
-                                   |  emulated bare metal workers      |
-                                   |   (3x small + 2x large)           |
+                                   |    emulated bare metal workers    |
+                                   |        (3x small + 2x large)      |
                                    +-----------------------------------+
 
 Host machine: Ubuntu 24.04 + libvirt/KVM + Sushy Tools + vCluster Standalone
