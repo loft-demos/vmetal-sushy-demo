@@ -4,8 +4,8 @@
 # metal pools via the Metal3 NodeProvider. The default sample requests one
 # small-capacity node, which keeps the stock demo lightweight while still
 # exercising the customer/rack-aware inventory and static pool workflow. Set
-# customerSelector to scope the pools to one or more customers and optionally
-# use rackSelector to narrow that capacity to specific racks.
+# customerSelector to scope the pools to one or more customer-assigned pools
+# and optionally use rackSelector to narrow that capacity to specific racks.
 #
 # Apply with:
 #   kubectl apply -f manifests/platform/vmetal-static-template.yaml   # once

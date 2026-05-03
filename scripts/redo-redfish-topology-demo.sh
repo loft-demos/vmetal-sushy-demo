@@ -14,7 +14,7 @@
 #
 # Optional flags:
 #   --recreate-bmhs         Delete and recreate BareMetalHosts from discovery
-#   --reapply-nodeprovider  Apply manifests/platform/node-provider-customer-topology.yaml
+#   --reapply-nodeprovider  Render and apply manifests/platform/node-provider-customer-topology.yaml
 #   --skip-vms              Do not rerun scripts/create-vms.sh
 
 set -euo pipefail
@@ -22,6 +22,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG_FILE="${REPO_ROOT}/configs/sushy-tools.conf"
 NODEPROVIDER_MANIFEST="${REPO_ROOT}/manifests/platform/node-provider-customer-topology.yaml"
+RACK_TOPOLOGY_FILE="${REPO_ROOT}/configs/rack-topology.csv"
+RACK_ASSIGNMENT_FILE="${REPO_ROOT}/configs/rack-assignments.csv"
 
 RECREATE_BMHS=false
 REAPPLY_NODEPROVIDER=false
@@ -63,6 +65,7 @@ chmod +x \
   scripts/redo-redfish-topology-demo.sh \
   hack/discover-redfish-inventory.sh \
   hack/generate-bmh.sh \
+  hack/generate-node-provider-pools.py \
   hack/generate-redfish-topology.py \
   hack/redfish-topology-proxy.py
 
@@ -106,6 +109,16 @@ done
 
 log "Redfish topology service is reachable."
 
+if [[ -f "${RACK_TOPOLOGY_FILE}" && -f "${RACK_ASSIGNMENT_FILE}" ]]; then
+  log "Rendering data-center scoped NodeProvider manifest..."
+  python3 hack/generate-node-provider-pools.py \
+    --rack-topology "${RACK_TOPOLOGY_FILE}" \
+    --rack-assignments "${RACK_ASSIGNMENT_FILE}" \
+    --output "${NODEPROVIDER_MANIFEST}"
+else
+  log "Skipping NodeProvider render because ${RACK_TOPOLOGY_FILE} or ${RACK_ASSIGNMENT_FILE} is missing."
+fi
+
 if [[ "${RECREATE_BMHS}" == "true" ]]; then
   command -v kubectl >/dev/null 2>&1 || die "kubectl not found"
   log "Deleting existing BareMetalHosts..."
@@ -118,7 +131,7 @@ fi
 
 if [[ "${REAPPLY_NODEPROVIDER}" == "true" ]]; then
   command -v kubectl >/dev/null 2>&1 || die "kubectl not found"
-  log "Reapplying customer+rack aware NodeProvider..."
+  log "Reapplying data-center scoped NodeProvider..."
   kubectl apply -f "${NODEPROVIDER_MANIFEST}"
 fi
 

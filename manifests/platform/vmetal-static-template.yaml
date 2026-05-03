@@ -1,9 +1,10 @@
 ## vmetal-static-template.yaml - VirtualClusterTemplate for static bare metal pools
 #
 # Parameterized template that provisions a vCluster backed by fixed-size bare
-# metal node pools via the metal3-provider NodeProvider. This mirrors the
-# "reserved capacity" model often used by AI clouds, where each machine class
-# has an explicit pool size instead of scaling purely on demand.
+# metal node pools via the data-center scoped `us-va-blacksburg-dc1`
+# NodeProvider. This mirrors the "reserved capacity" model often used by AI
+# clouds, where each machine class has an explicit pool size instead of
+# scaling purely on demand.
 #
 # Parameters:
 #   kubernetesVersion - control plane K8s version; update to trigger an upgrade
@@ -45,7 +46,7 @@ spec:
         privateNodes:
           enabled: true
           autoNodes:
-            - provider: metal3-provider
+            - provider: us-va-blacksburg-dc1
               static:
                 {{ if ne .Values.smallNodeCount "0" }}
                 - name: static-small-nodes
@@ -219,7 +220,8 @@ spec:
       label: Customer Selector
       description: >
         Optional comma-separated customer list such as `customer-a` or
-        `customer-a,customer-b`. Leave empty to allow all customers.
+        `customer-a,customer-b`. This filters NodeType properties, not
+        BareMetalHost labels directly. Leave empty to allow all customers.
       defaultValue: ""
 
     - variable: rackSelector

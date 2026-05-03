@@ -1,83 +1,97 @@
 # Customer + Rack Auto Nodes
 
-This document explains how customer-aware and rack-aware capacity selection works in the demo once `BareMetalHosts` have been discovered from Redfish and labeled with topology metadata.
+This document explains the current best-fit model for customer-aware bare metal scheduling in this repo.
 
 Use this alongside [customer-rack-topology.md](./customer-rack-topology.md):
 
-- `customer-rack-topology.md` explains how inventory is built from Redfish and
-mapped into `BareMetalHost` objects.
-- This document explains how `NodeProvider` node types and vCluster Auto Nodes
-consume that topology information during worker provisioning.
+- `customer-rack-topology.md` explains how Redfish discovery produces physical inventory.
+- This document explains how the generated `NodeProvider` turns that physical inventory into schedulable pools for vCluster Auto Nodes.
 
 ## Mental model
 
 There are three layers:
 
-1. `BareMetalHost` labels describe the discovered hardware inventory.
-2. `NodeProvider.nodeTypes` translate those labels into schedulable capacity
-properties.
-3. `privateNodes.autoNodes` selectors choose from that capacity using customer
-and optional rack filters.
+1. `BareMetalHost` labels describe physical facts only.
+2. `NodeProvider.nodeTypes` define schedulable pools, usually `rack × size`.
+3. `privateNodes.autoNodes.nodeTypeSelector` targets those pools by customer assignment and optional physical constraints.
 
-The key split is:
+The split is intentional:
 
-- `customer` is the assignment / allocation dimension
-- `rack` is the physical failure-domain dimension
+- physical topology stays on the `BareMetalHost`
+- customer assignment lives on `NodeType.properties`
 
-That lets a customer span multiple racks while still allowing you to narrow a node pool to one rack when you want a more explicit placement story.
+That keeps rack handoff and customer reassignment at the schedulable-pool layer instead of the hardware-inventory layer.
 
-## Inventory labels
+## BareMetalHost labels
 
-Each discovered `BareMetalHost` carries labels like:
+Each generated `BareMetalHost` carries labels like:
 
 ```yaml
 metadata:
   labels:
     demo: vmetal
-    vmetal-customer: customer-a
-    vmetal-rack: rack-a
-    vmetal-size: small
+    topology.vcluster.com/az: us-va-blacksburg-dc1
+    topology.vcluster.com/row: row-1
+    topology.vcluster.com/rack: rack-a
+    inventory.vcluster.com/size: large
+    inventory.vcluster.com/accelerator: h100
 ```
 
-Those labels are derived from:
+These labels are physical-only:
 
-- Redfish `Chassis.Location.Placement.Rack`
-- external `configs/rack-assignments.csv` assignment mapping
-- hardware shape inferred from Redfish (`small`, `medium`, `large`)
+- `topology.vcluster.com/*` describes placement
+- `inventory.vcluster.com/*` describes hardware shape
 
-## NodeProvider translation
+Customer assignment is not stored on the `BareMetalHost`.
 
-The topology-aware provider model exposes those dimensions as node type properties:
+## NodeProvider pool model
+
+The generated `NodeProvider` is named for the connected DC cluster:
 
 ```yaml
-properties:
-  vcluster.com/customer: customer-a
-  vcluster.com/rack: rack-a
-  vcluster.com/profile: small
-  vcluster.com/cpu: "2"
-  vcluster.com/memory: 4Gi
+metadata:
+  name: us-va-blacksburg-dc1
 ```
 
-That is the bridge between `BareMetalHost` labels and vCluster Auto Nodes.
+Its `nodeTypes` represent rack-scoped pools:
 
-## Selector behavior
+```yaml
+- name: rack-a-large-pool
+  bareMetalHosts:
+    selector:
+      matchLabels:
+        demo: vmetal
+        topology.vcluster.com/az: us-va-blacksburg-dc1
+        topology.vcluster.com/row: row-1
+        topology.vcluster.com/rack: rack-a
+        inventory.vcluster.com/size: large
+        inventory.vcluster.com/accelerator: h100
+  properties:
+    vcluster.com/customer: customer-a
+    vcluster.com/az: us-va-blacksburg-dc1
+    vcluster.com/row: row-1
+    vcluster.com/rack: rack-a
+    vcluster.com/profile: large
+    vcluster.com/accelerator: h100
+```
 
-The templates now support:
+That gives each pool two meanings:
+
+- `bareMetalHosts.selector` answers: “which machines belong to this pool?”
+- `properties` answers: “which tenants are allowed to target this pool?”
+
+## What Auto Nodes selects
+
+The templates still expose:
 
 - `customerSelector`: optional primary scope
 - `rackSelector`: optional additional narrowing filter
 
+Those selectors now filter `NodeType.properties`, not `BareMetalHost` labels directly.
+
 ### Dynamic template
 
-`manifests/platform/vmetal-template.yaml` works like this:
-
-- if `customerSelector` is empty, any customer-assigned capacity is eligible
-- if `customerSelector` is set, only matching customers are eligible
-- if `rackSelector` is also set, the eligible set is reduced to those racks
-- size is not constrained in the dynamic template; Karpenter can still choose
-larger matching node types if smaller ones are unavailable
-
-Example:
+`manifests/platform/vmetal-template.yaml` selects the DC-scoped provider and applies optional customer/rack filters:
 
 ```yaml
 parameters: |
@@ -89,10 +103,10 @@ parameters: |
 
 That means:
 
-- only `customer-a` capacity is considered
-- capacity can come from any `BareMetalHost` assigned to `customer-a`
+- only node types with `vcluster.com/customer=customer-a` are eligible
+- any rack assigned to `customer-a` can satisfy the request
 
-Example with a rack pin:
+With a rack pin:
 
 ```yaml
 parameters: |
@@ -104,12 +118,12 @@ parameters: |
 
 That means:
 
-- only `customer-a` capacity is considered
-- only `rack-a` within that customer-assigned set is eligible
+- only `customer-a` pools are eligible
+- only `rack-a` within that assigned set can be claimed
 
 ### Static template
 
-`manifests/platform/vmetal-static-template.yaml` works similarly, but with fixed quantities per profile class:
+`manifests/platform/vmetal-static-template.yaml` works the same way, but with explicit quantities per profile:
 
 ```yaml
 parameters: |
@@ -124,29 +138,42 @@ parameters: |
 That means:
 
 - request 2 small nodes and 1 medium node
-- source them from any `BareMetalHost` assigned to `customer-a`
+- source them from any rack pool currently assigned to `customer-a`
 
-And with explicit rack narrowing:
+## Why this scales better
 
-```yaml
-parameters: |
-  kubernetesVersion: v1.34.7
-  smallNodeCount: "1"
-  mediumNodeCount: "0"
-  largeNodeCount: "1"
-  customerSelector: "customer-a"
-  rackSelector: "rack-a,rack-b"
+The pool model avoids the worst combinatorial explosion:
+
+- poor fit: `customer × rack × size`
+- better fit: `rack × size`
+
+Customer assignment changes still happen, but they update `NodeType.properties` instead of exploding the number of node types or forcing `BareMetalHost` relabeling.
+
+## Reassignment workflow
+
+For a rack handoff story:
+
+1. Update `configs/rack-assignments.csv`
+2. Re-render the provider:
+
+```bash
+python3 hack/generate-node-provider-pools.py \
+  --rack-topology configs/rack-topology.csv \
+  --rack-assignments configs/rack-assignments.csv \
+  --output manifests/platform/node-provider-customer-topology.yaml
 ```
 
-That means:
+3. Re-apply the provider:
 
-- request 1 small node and 1 large node
-- limit the eligible pool to `rack-a` and `rack-b`
-- but still only within `customer-a` assignment
+```bash
+kubectl apply -f manifests/platform/node-provider-customer-topology.yaml
+```
+
+The `BareMetalHost` labels stay unchanged because the physical placement did not move.
 
 ## Provisioning chain
 
-Once a selector matches capacity, the provisioning chain is:
+Once a selector matches a pool, the provisioning chain is:
 
 1. `VirtualClusterInstance`
 2. Auto Nodes request
@@ -163,60 +190,3 @@ kubectl get nodeclaims -A -w
 kubectl get machines -A -w
 kubectl get baremetalhosts -n metal3-system -w
 ```
-
-## Recommended usage patterns
-
-### Customer-wide pool
-
-Use when a customer can draw from multiple racks:
-
-```yaml
-customerSelector: "customer-a"
-rackSelector: ""
-```
-
-### Customer + rack pin
-
-Use when you want a stronger rack placement story:
-
-```yaml
-customerSelector: "customer-a"
-rackSelector: "rack-a"
-```
-
-### Multi-rack customer failover window
-
-Use when you want to show that the same customer allocation can span multiple racks while still being bounded:
-
-```yaml
-customerSelector: "customer-a"
-rackSelector: "rack-a,rack-b"
-```
-
-## Why rack stays optional
-
-Keeping `rackSelector` optional is intentional:
-
-- customer assignment is usually the higher-level commercial boundary
-- rack is a physical placement boundary
-- customers often span multiple racks
-- forcing rack selection all the time would make the common multi-rack case
-awkward
-
-So the natural model is:
-
-- choose by customer first
-- optionally narrow by rack
-
-## Operational note
-
-Do not put customer identity into the `BareMetalHost` name if you want rack handoff to stay a label/selector change. The object name should reflect stable physical identity, such as:
-
-- `rack-a-u12-small`
-- `rack-a-u18-large`
-- `rack-b-u16-large`
-
-Customer assignment should stay in labels and selectors:
-
-- `vmetal-customer=customer-a`
-- `vmetal-rack=rack-a`

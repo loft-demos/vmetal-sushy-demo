@@ -10,6 +10,9 @@
 #   NAME UUID MAC PROFILE FIRMWARE RACK CUSTOMER
 #   NAME UUID MAC PROFILE FIRMWARE RACK CUSTOMER BMC_ADDRESS
 #
+# The CUSTOMER column is informational for the generated inventory and is not
+# applied to BareMetalHost labels in the current pool-based topology model.
+#
 # Usage:
 #   # Preview
 #   bash hack/generate-bmh.sh
@@ -51,11 +54,59 @@ fi
 PROVISION_DNS_SERVERS="${PROVISION_DNS_SERVERS:-${PROVISION_IP}}"
 
 INVENTORY_FILE="${REPO_ROOT}/configs/vm-inventory.txt"
+RACK_TOPOLOGY_FILE="${RACK_TOPOLOGY_FILE:-${REPO_ROOT}/configs/rack-topology.csv}"
+DEFAULT_TOPOLOGY_ROW="${DEFAULT_TOPOLOGY_ROW:-row-1}"
+DEFAULT_TOPOLOGY_AZ="${DEFAULT_TOPOLOGY_AZ:-us-va-blacksburg-dc1}"
+SMALL_ACCELERATOR="${SMALL_ACCELERATOR:-cpu-only}"
+MEDIUM_ACCELERATOR="${MEDIUM_ACCELERATOR:-cpu-only}"
+LARGE_ACCELERATOR="${LARGE_ACCELERATOR:-h100}"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
 [[ -f "${INVENTORY_FILE}" ]] || die "VM inventory not found: ${INVENTORY_FILE}
 Run scripts/create-vms.sh first to generate it."
+
+lookup_rack_topology() {
+  local rack="$1"
+  local row="${DEFAULT_TOPOLOGY_ROW}"
+  local az="${DEFAULT_TOPOLOGY_AZ}"
+
+  if [[ -f "${RACK_TOPOLOGY_FILE}" ]]; then
+    local match
+    match="$(awk -F',' -v rack="${rack}" '
+      BEGIN { OFS=" " }
+      /^[[:space:]]*#/ { next }
+      NF < 3 { next }
+      {
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1)
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3)
+        if (tolower($1) == "rack" && tolower($2) == "row" && tolower($3) == "az") {
+          next
+        }
+        if ($1 == rack) {
+          print $2, $3
+          exit
+        }
+      }
+    ' "${RACK_TOPOLOGY_FILE}")"
+
+    if [[ -n "${match}" ]]; then
+      read -r row az <<< "${match}"
+    fi
+  fi
+
+  printf '%s %s\n' "${row}" "${az}"
+}
+
+accelerator_for_profile() {
+  case "$1" in
+    small) printf '%s\n' "${SMALL_ACCELERATOR}" ;;
+    medium) printf '%s\n' "${MEDIUM_ACCELERATOR}" ;;
+    large) printf '%s\n' "${LARGE_ACCELERATOR}" ;;
+    *) printf '%s\n' "unknown" ;;
+  esac
+}
 
 # ---------------------------------------------------------------------------
 # Emit YAML for each VM in the inventory
@@ -74,6 +125,8 @@ while read -r line; do
   read -r vm_name uuid mac profile firmware rack customer bmc_address <<< "${line}"
   rack="${rack:-rack-a}"
   customer="${customer:-unassigned}"
+  read -r topology_row topology_az <<< "$(lookup_rack_topology "${rack}")"
+  accelerator="$(accelerator_for_profile "${profile}")"
 
   # Assign sequential IP from provisioning subnet
   vm_ip="${ip_prefix}.$((ip_last + ip_index))"
@@ -128,9 +181,11 @@ metadata:
   namespace: metal3-system
   labels:
     demo: vmetal
-    vmetal-customer: ${customer}
-    vmetal-rack: ${rack}
-    vmetal-size: ${profile}
+    topology.vcluster.com/az: ${topology_az}
+    topology.vcluster.com/row: ${topology_row}
+    topology.vcluster.com/rack: ${rack}
+    inventory.vcluster.com/size: ${profile}
+    inventory.vcluster.com/accelerator: ${accelerator}
   annotations:
     metal3.vcluster.com/ip-address: "${vm_ip}/${prefix_len}"
     metal3.vcluster.com/gateway: "${PROVISION_GATEWAY}"

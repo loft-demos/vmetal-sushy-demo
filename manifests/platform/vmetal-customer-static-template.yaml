@@ -1,8 +1,8 @@
 # vmetal-customer-static-template.yaml — customer+rack aware private-node template
 #
 # This template is aimed at dedicated-rack / AI-cloud style topology where the
-# consumer experience should be able to target both the customer assignment and
-# the rack boundary through node-type properties.
+# consumer experience should be able to target both customer-assigned pools and
+# explicit rack boundaries through NodeType properties.
 #
 # Apply with:
 #   kubectl apply -f manifests/platform/vmetal-customer-static-template.yaml
@@ -29,7 +29,7 @@ spec:
         privateNodes:
           enabled: true
           autoNodes:
-            - provider: metal3-provider
+            - provider: us-va-blacksburg-dc1
               static:
                 {{ if ne .Values.largeNodeCount "0" }}
                 - name: customer-rack-large-nodes

@@ -5,7 +5,7 @@
 # Notes:
 # - NAME is the stable physical identity shown in the UI and used for the BMH name.
 # - PROFILE is the size class inferred from Redfish hardware shape.
-# - CUSTOMER comes from configs/rack-assignments.csv, not from Redfish itself.
+# - CUSTOMER comes from configs/rack-assignments.csv for pool assignment generation, not from Redfish itself.
 # - BMC_ADDRESS should point at the full Redfish Systems resource.
 
 rack-a-u12-small 41c60678-de8d-4be7-b90c-b2ba270e8312 52:54:00:aa:00:00 small bios rack-a customer-a redfish+http://172.22.0.1:8000/redfish/v1/Systems/41c60678-de8d-4be7-b90c-b2ba270e8312

@@ -3,8 +3,8 @@
 # Creates a vCluster in the Default Project that provisions bare metal nodes
 # via the Metal3 NodeProvider. The backing inventory is spread across two
 # simulated racks, and node sizing is derived from the inspected hardware. Set
-# customerSelector to scope the pool to one or more customers and optionally
-# use rackSelector to narrow that capacity to specific racks.
+# customerSelector to scope the pool to one or more customer-assigned pools and
+# optionally use rackSelector to narrow that capacity to specific racks.
 #
 # Apply with:
 #   kubectl apply -f manifests/platform/vmetal-template.yaml   # once

@@ -1,4 +1,4 @@
 # rack,customer
+# This file feeds NodeType customer assignment, not BareMetalHost labels.
 rack-a,customer-a
 rack-b,customer-b
-

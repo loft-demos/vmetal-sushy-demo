@@ -29,18 +29,18 @@ spec:
           standalone:
             enabled: true
             autoNodes:
-              provider: metal3-provider
+              provider: us-va-blacksburg-dc1
               quantity: 1
               nodeTypeSelector:
                 - property: node.kubernetes.io/instance-type
                   operator: In
                   values:
-                    - metal3-provider.rack-a-small-node
-                    - metal3-provider.rack-b-small-node
+                    - us-va-blacksburg-dc1.rack-a-small-pool
+                    - us-va-blacksburg-dc1.rack-b-small-pool
         privateNodes:
           enabled: true
           autoNodes:
-            - provider: metal3-provider
+            - provider: us-va-blacksburg-dc1
               static:
                 {{ if ne .Values.smallNodeCount "0" }}
                 - name: static-small-nodes
@@ -49,8 +49,8 @@ spec:
                     - property: vcluster.com/node-type
                       operator: In
                       values:
-                        - rack-a-small-node
-                        - rack-b-small-node
+                        - rack-a-small-pool
+                        - rack-b-small-pool
                 {{ end }}
                 {{ if ne .Values.mediumNodeCount "0" }}
                 - name: static-medium-nodes
@@ -59,8 +59,8 @@ spec:
                     - property: vcluster.com/node-type
                       operator: In
                       values:
-                        - rack-a-medium-node
-                        - rack-b-medium-node
+                        - rack-a-medium-pool
+                        - rack-b-medium-pool
                 {{ end }}
                 {{ if ne .Values.largeNodeCount "0" }}
                 - name: static-large-nodes
@@ -69,8 +69,8 @@ spec:
                     - property: vcluster.com/node-type
                       operator: In
                       values:
-                        - rack-a-large-node
-                        - rack-b-large-node
+                        - rack-a-large-pool
+                        - rack-b-large-pool
                 {{ end }}
         networking:
           podCIDR: 10.64.0.0/16

@@ -1,8 +1,8 @@
-# node-provider.yaml — Metal3 NodeProvider for the vmetal-sushy-demo
+# node-provider.yaml — legacy Metal3 NodeProvider for the vmetal-sushy-demo
 #
-# This resource is applied to vCluster Platform (not to a workload cluster).
-# It tells vMetal to deploy and manage Metal3, Ironic, DHCP, and Multus
-# as a provider on the connected host cluster.
+# This resource is kept as a legacy reference. The current customer/rack pool
+# flow uses manifests/platform/node-provider-customer-topology.yaml rendered by
+# hack/generate-node-provider-pools.py.
 #
 # Before applying:
 #   1. Ensure the host cluster is connected to vCluster Platform and that

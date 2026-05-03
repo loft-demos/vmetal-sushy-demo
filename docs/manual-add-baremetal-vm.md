@@ -78,10 +78,10 @@ Notes:
 - The stock demo already uses `172.22.0.11` through `172.22.0.18`.
 - `172.22.0.1` is the host bridge IP and `172.22.0.2` is the DHCP VIP.
 - `172.22.0.19+` is a safe place to start for manually added hosts.
-- The `vmetal-rack` label must match one of the rack selectors in
-`manifests/platform/node-provider.yaml`.
-- The `vmetal-size` label must match the intended size class in
-`manifests/platform/node-provider.yaml`.
+- The physical labels must match one of the pool selectors in
+`manifests/platform/node-provider-customer-topology.yaml`.
+- The recommended model is `topology.vcluster.com/*` for placement and
+`inventory.vcluster.com/*` for hardware shape.
 - For a large node, use `VM_PROFILE=large` and the matching large VM sizing.
 
 ## 2. Create the VM disk and define the libvirt VM
@@ -194,8 +194,11 @@ metadata:
   namespace: metal3-system
   labels:
     demo: vmetal
-    vmetal-rack: ${VM_RACK}
-    vmetal-size: ${VM_PROFILE}
+    topology.vcluster.com/az: us-va-blacksburg-dc1
+    topology.vcluster.com/row: row-1
+    topology.vcluster.com/rack: ${VM_RACK}
+    inventory.vcluster.com/size: ${VM_PROFILE}
+    inventory.vcluster.com/accelerator: cpu-only
   annotations:
     metal3.vcluster.com/ip-address: "${VM_IP}/24"
     metal3.vcluster.com/gateway: "${PROVISION_GATEWAY}"
@@ -230,7 +233,11 @@ After creating the BareMetalHost in the UI, add the rack labels manually. The UI
 ```bash
 kubectl -n metal3-system label baremetalhost "${VM_NAME}" \
   demo=vmetal \
-  vmetal-rack="${VM_RACK}" \
+  topology.vcluster.com/az=us-va-blacksburg-dc1 \
+  topology.vcluster.com/row=row-1 \
+  topology.vcluster.com/rack="${VM_RACK}" \
+  inventory.vcluster.com/size="${VM_PROFILE}" \
+  inventory.vcluster.com/accelerator=cpu-only \
   --overwrite
 ```
 
@@ -341,9 +348,8 @@ Once the host is `available`, it is ready for any matching `NodeClaim`.
 
 In this repo:
 
-- `vmetal-rack: rack-a` and `vmetal-rack: rack-b` place hosts into the two
-simulated racks
-- `vmetal-size: small|medium|large` places hosts into the intended size class
+- `topology.vcluster.com/rack: rack-a` and `topology.vcluster.com/rack: rack-b` place hosts into the two simulated racks
+- `inventory.vcluster.com/size: small|medium|large` places hosts into the intended size class
 - the dedicated medium-capacity path is a good fit for a UEFI-focused demo host
 
 The important behavior is:

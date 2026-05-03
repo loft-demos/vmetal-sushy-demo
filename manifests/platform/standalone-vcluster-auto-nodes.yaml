@@ -28,18 +28,18 @@ spec:
           standalone:
             enabled: true
             autoNodes:
-              provider: metal3-provider
+              provider: us-va-blacksburg-dc1
               quantity: 1
               nodeTypeSelector:
                 - property: node.kubernetes.io/instance-type
                   operator: In
                   values:
-                    - metal3-provider.rack-a-small-node
-                    - metal3-provider.rack-b-small-node
+                    - us-va-blacksburg-dc1.rack-a-small-pool
+                    - us-va-blacksburg-dc1.rack-b-small-pool
         privateNodes:
           enabled: true
           autoNodes:
-            - provider: metal3-provider
+            - provider: us-va-blacksburg-dc1
               static:
                 - name: node-pool-1
                   quantity: 1
@@ -47,8 +47,8 @@ spec:
                     - property: node.kubernetes.io/instance-type
                       operator: In
                       values:
-                        - metal3-provider.rack-a-large-node
-                        - metal3-provider.rack-b-large-node
+                        - us-va-blacksburg-dc1.rack-a-large-pool
+                        - us-va-blacksburg-dc1.rack-b-large-pool
         networking:
           podCIDR: 10.64.0.0/16
           serviceCIDR: 10.128.0.0/16
