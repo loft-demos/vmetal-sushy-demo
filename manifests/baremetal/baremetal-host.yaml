@@ -11,7 +11,8 @@
 #   3. Replace the bootMACAddress with the VM's NIC MAC:
 #        sudo virsh domiflist vmetal-small-1
 #   4. Add the required metal3.vcluster.com annotations for static IP/DNS.
-#   5. Adjust labels to match the nodeType selector in node-provider.yaml.
+#   5. Adjust labels to match the rack/customer selector in the chosen
+#      NodeProvider manifest.
 #   6. Keep rootDeviceHints.deviceName as /dev/vda for virtio disks.
 #
 # Namespace must match the Metal3 namespace in the NodeProvider (metal3-system).
@@ -26,7 +27,9 @@ metadata:
   namespace: metal3-system
   labels:
     demo: vmetal
-    vmetal-size: small   # <-- "small", "medium", or "large"; must match nodeType selector
+    vmetal-customer: customer-a
+    vmetal-rack: rack-a   # <-- "rack-a" or "rack-b"
+    vmetal-size: small    # <-- "small", "medium", or "large"
   annotations:
     # Required by the vCP DHCP proxy for static IP assignment on br-provision.
     metal3.vcluster.com/ip-address: "172.22.0.11/24"

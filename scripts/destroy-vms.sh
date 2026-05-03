@@ -15,9 +15,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Load defaults
-SMALL_VM_COUNT="${SMALL_VM_COUNT:-3}"
+SMALL_VM_COUNT="${SMALL_VM_COUNT:-4}"
 SMALL_VM_NAME_PREFIX="${SMALL_VM_NAME_PREFIX:-vmetal-small}"
-MEDIUM_VM_COUNT="${MEDIUM_VM_COUNT:-0}"
+MEDIUM_VM_COUNT="${MEDIUM_VM_COUNT:-1}"
 MEDIUM_VM_NAME_PREFIX="${MEDIUM_VM_NAME_PREFIX:-vmetal-medium}"
 LARGE_VM_COUNT="${LARGE_VM_COUNT:-2}"
 LARGE_VM_NAME_PREFIX="${LARGE_VM_NAME_PREFIX:-vmetal-large}"
@@ -29,6 +29,7 @@ if [[ -f "${REPO_ROOT}/.env" ]]; then
 fi
 
 INVENTORY_FILE="${REPO_ROOT}/configs/vm-inventory.txt"
+TOPOLOGY_FILE="${REPO_ROOT}/configs/redfish-topology.json"
 
 log()  { echo "[destroy-vms] $*"; }
 warn() { echo "[destroy-vms] WARNING: $*" >&2; }
@@ -94,6 +95,11 @@ done
 if [[ -f "${INVENTORY_FILE}" ]]; then
   log "Removing VM inventory: ${INVENTORY_FILE}"
   rm -f "${INVENTORY_FILE}"
+fi
+
+if [[ -f "${TOPOLOGY_FILE}" ]]; then
+  log "Removing Redfish topology: ${TOPOLOGY_FILE}"
+  rm -f "${TOPOLOGY_FILE}"
 fi
 
 log "All demo VMs destroyed."

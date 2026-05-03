@@ -91,8 +91,8 @@ The demo now ships with two `VirtualClusterTemplate` variants:
 | Parameter | Purpose | Default | Options |
 |---|---|---|---|
 | `kubernetesVersion` | K8s control plane version | `v1.34.7` | `v1.33.11`, `v1.34.7`, `v1.35.4` |
-| `nodeType` | BareMetalHost class to target | `small-node` | `small-node`, `medium-node`, `large-node` |
 | `cpuLimit` | Maximum CPUs that can be provisioned by this node pool | `5` | `2`, `3`, `5`, `6`, `10` |
+| `rackSelector` | Optional comma-separated rack list for dynamic workers | `""` | freeform, e.g. `rack-a` or `rack-a,rack-c` |
 
 ### Static template
 
@@ -101,13 +101,14 @@ The demo now ships with two `VirtualClusterTemplate` variants:
 | Parameter           | Purpose | Default | Options |
 |---------------------|---|---|---|
 | `kubernetesVersion` | K8s control plane version | `v1.34.7` | `v1.33.11`, `v1.34.7`, `v1.35.4` |
-| `smallNodeCount`    | Number of `small-node` workers to keep present | `1` | `0`, `1`, `2`, `3` |
-| `mediumNodeCount`   | Number of `medium-node` workers to keep present | `0` | `0`, `1` |
-| `largeNodeCount`    | Number of `large-node` workers to keep present | `1` | `0`, `1`, `2` |
+| `smallNodeCount`    | Number of small-capacity workers to keep present across both racks | `1` | `0`, `1`, `2`, `3`, `4` |
+| `mediumNodeCount`   | Number of medium-capacity workers to keep present across both racks | `0` | `0`, `1`, `2` |
+| `largeNodeCount`    | Number of large-capacity workers to keep present across both racks | `1` | `0`, `1`, `2` |
+| `rackSelector`      | Optional comma-separated rack list for all static worker pools | `""` | freeform, e.g. `rack-a` or `rack-a,rack-c` |
 
 Both templates render into a vCluster Helm release using `controlPlane.distro.k8s.version` to set the K8s version. This enables a live upgrade demo:
 
-1. Create the vCluster at `v1.34.7` (one small bare metal node)
+1. Create the vCluster at `v1.34.7` (one small-capacity bare metal node)
 2. Edit `manifests/platform/vcluster-vmetal.yaml`: change `kubernetesVersion` to `v1.35.4`
 3. `kubectl apply -f manifests/platform/vcluster-vmetal.yaml`
 4. vCluster Platform re-renders the Helm release and performs a rolling control plane upgrade
@@ -145,27 +146,34 @@ Rough resource allocation for the default configuration:
 | Ubuntu host OS | 1–2 | ~2 GB |
 | vCluster Standalone | 1–2 | ~2–4 GB |
 | Metal3 / Ironic / DHCP (platform-managed) | 2–4 | ~4–6 GB |
-| 3x small VMs (2 vCPU each) | 6 | 12 GB |
+| 4x small VMs (2 vCPU each) | 8 | 16 GB |
+| 2x medium VMs (3 vCPU each) | 6 | 12 GB |
 | 2x large VMs (4 vCPU each) | 8 | 16 GB |
-| **Total** | **~18–22 vCPU** | **~36–40 GB** |
+| **Total** | **~26–30 vCPU** | **~52–56 GB** |
 
-This leaves 2–6 vCPUs and 24+ GB of RAM as headroom, which is comfortable for demo stability. Swap should be disabled or minimal on a KVM host to avoid latency spikes.
+This slightly overcommits CPU on a 24-thread host but stays workable for a local demo because the guests are mostly idle outside provisioning bursts. RAM headroom is tighter than the earlier five-VM layout, so this profile is best on a 64 GB host with swap disabled or kept minimal to avoid latency spikes.
 
 Note: vCPU overcommit (assigning more vCPUs than physical threads) is fine for idle VMs, but keeping total vCPU allocation under the physical thread count avoids scheduler contention during provisioning when all VMs are active simultaneously.
 
 ### Small VMs (vmetal-small-N)
 - 2 vCPU / 4 GB RAM / 40 GB disk
 - Represent lightweight worker nodes
-- Label: `vmetal-size: small`
+- Distributed evenly across `rack-a` and `rack-b`
 - Suitable for showing the basic bare-metal provisioning lifecycle
+
+### Medium VMs (vmetal-medium-N)
+- 3 vCPU / 6 GB RAM / 60 GB disk
+- Represent balanced worker nodes and the default UEFI demo lane
+- Distributed evenly across `rack-a` and `rack-b`
+- Suitable for showing the medium size class explicitly
 
 ### Large VMs (vmetal-large-N)
 - 4 vCPU / 8 GB RAM / 80 GB disk
 - Represent compute-heavy or GPU-class nodes
-- Label: `vmetal-size: large`
+- Distributed evenly across `rack-a` and `rack-b`
 - Suitable for demonstrating node type selection and differentiated provisioning
 
-Both sizes are configured in `.env` and can be adjusted by editing `SMALL_VM_*` and `LARGE_VM_*` variables.
+All three sizes are configured in `.env` and can be adjusted by editing the `SMALL_VM_*`, `MEDIUM_VM_*`, and `LARGE_VM_*` variables.
 
 ---
 

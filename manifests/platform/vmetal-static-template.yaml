@@ -1,4 +1,4 @@
-# vmetal-static-template.yaml — VirtualClusterTemplate for static bare metal pools
+## vmetal-static-template.yaml - VirtualClusterTemplate for static bare metal pools
 #
 # Parameterized template that provisions a vCluster backed by fixed-size bare
 # metal node pools via the metal3-provider NodeProvider. This mirrors the
@@ -6,10 +6,12 @@
 # has an explicit pool size instead of scaling purely on demand.
 #
 # Parameters:
-#   kubernetesVersion — control plane K8s version; update to trigger an upgrade
-#   smallNodeCount    — desired number of small-node workers
-#   mediumNodeCount   — desired number of medium-node workers
-#   largeNodeCount    — desired number of large-node workers
+#   kubernetesVersion - control plane K8s version; update to trigger an upgrade
+#   smallNodeCount    - desired number of small-capacity workers
+#   mediumNodeCount   - desired number of medium-capacity workers
+#   largeNodeCount    - desired number of large-capacity workers
+#   customerSelector  - optional comma-separated list of customers to target
+#   rackSelector      - optional comma-separated list of racks to target
 #
 # Apply with:
 #   kubectl apply -f manifests/platform/vmetal-static-template.yaml
@@ -25,7 +27,7 @@ kind: VirtualClusterTemplate
 metadata:
   name: vmetal-static-template
 spec:
-  displayName: "vMetal — Bare Metal Static Node Pools"
+  displayName: "vMetal - Static Bare Metal Auto Nodes"
   description: >
     vCluster backed by fixed-size bare metal node pools provisioned through the
     Metal3 NodeProvider. Each node class has its own desired quantity, which is
@@ -38,7 +40,7 @@ spec:
   template:
     helmRelease:
       chart:
-        version: 0.33.1
+        version: 0.34.0
       values: |
         privateNodes:
           enabled: true
@@ -49,22 +51,106 @@ spec:
                 - name: static-small-nodes
                   quantity: {{ .Values.smallNodeCount }}
                   nodeTypeSelector:
-                    - property: vcluster.com/node-type
-                      value: small-node
+                    {{- if and .Values.customerSelector (ne (trim .Values.customerSelector) "") (ne (trim .Values.customerSelector) "all") }}
+                    - property: vcluster.com/customer
+                      operator: In
+                      values:
+                        {{- range $customer := splitList "," .Values.customerSelector }}
+                        {{- $trimmedCustomer := trim $customer }}
+                        {{- if ne $trimmedCustomer "" }}
+                        - {{ $trimmedCustomer }}
+                        {{- end }}
+                        {{- end }}
+                    {{- end }}
+                    - property: vcluster.com/cpu
+                      operator: In
+                      values:
+                        - "2"
+                    - property: vcluster.com/memory
+                      operator: In
+                      values:
+                        - 4Gi
+                    {{- if and .Values.rackSelector (ne (trim .Values.rackSelector) "") (ne (trim .Values.rackSelector) "all") }}
+                    - property: vcluster.com/rack
+                      operator: In
+                      values:
+                        {{- range $rack := splitList "," .Values.rackSelector }}
+                        {{- $trimmedRack := trim $rack }}
+                        {{- if ne $trimmedRack "" }}
+                        - {{ $trimmedRack }}
+                        {{- end }}
+                        {{- end }}
+                    {{- end }}
                 {{ end }}
                 {{ if ne .Values.mediumNodeCount "0" }}
                 - name: static-medium-nodes
                   quantity: {{ .Values.mediumNodeCount }}
                   nodeTypeSelector:
-                    - property: vcluster.com/node-type
-                      value: medium-node
+                    {{- if and .Values.customerSelector (ne (trim .Values.customerSelector) "") (ne (trim .Values.customerSelector) "all") }}
+                    - property: vcluster.com/customer
+                      operator: In
+                      values:
+                        {{- range $customer := splitList "," .Values.customerSelector }}
+                        {{- $trimmedCustomer := trim $customer }}
+                        {{- if ne $trimmedCustomer "" }}
+                        - {{ $trimmedCustomer }}
+                        {{- end }}
+                        {{- end }}
+                    {{- end }}
+                    - property: vcluster.com/cpu
+                      operator: In
+                      values:
+                        - "3"
+                    - property: vcluster.com/memory
+                      operator: In
+                      values:
+                        - 6Gi
+                    {{- if and .Values.rackSelector (ne (trim .Values.rackSelector) "") (ne (trim .Values.rackSelector) "all") }}
+                    - property: vcluster.com/rack
+                      operator: In
+                      values:
+                        {{- range $rack := splitList "," .Values.rackSelector }}
+                        {{- $trimmedRack := trim $rack }}
+                        {{- if ne $trimmedRack "" }}
+                        - {{ $trimmedRack }}
+                        {{- end }}
+                        {{- end }}
+                    {{- end }}
                 {{ end }}
                 {{ if ne .Values.largeNodeCount "0" }}
                 - name: static-large-nodes
                   quantity: {{ .Values.largeNodeCount }}
                   nodeTypeSelector:
-                    - property: vcluster.com/node-type
-                      value: large-node
+                    {{- if and .Values.customerSelector (ne (trim .Values.customerSelector) "") (ne (trim .Values.customerSelector) "all") }}
+                    - property: vcluster.com/customer
+                      operator: In
+                      values:
+                        {{- range $customer := splitList "," .Values.customerSelector }}
+                        {{- $trimmedCustomer := trim $customer }}
+                        {{- if ne $trimmedCustomer "" }}
+                        - {{ $trimmedCustomer }}
+                        {{- end }}
+                        {{- end }}
+                    {{- end }}
+                    - property: vcluster.com/cpu
+                      operator: In
+                      values:
+                        - "4"
+                    - property: vcluster.com/memory
+                      operator: In
+                      values:
+                        - 8Gi
+                    {{- if and .Values.rackSelector (ne (trim .Values.rackSelector) "") (ne (trim .Values.rackSelector) "all") }}
+                    - property: vcluster.com/rack
+                      operator: In
+                      values:
+                        {{- range $rack := splitList "," .Values.rackSelector }}
+                        {{- $trimmedRack := trim $rack }}
+                        {{- if ne $trimmedRack "" }}
+                        - {{ $trimmedRack }}
+                        {{- end }}
+                        {{- end }}
+                    {{- end }}
                 {{ end }}
         networking:
           podCIDR: 10.64.0.0/16
@@ -79,7 +165,7 @@ spec:
               version: "{{ .Values.kubernetesVersion }}"
 
   # ---------------------------------------------------------------------------
-  # Parameters — surfaced in the vCluster Platform UI and passed to helm values
+  # Parameters - surfaced in the vCluster Platform UI and passed to helm values
   # ---------------------------------------------------------------------------
   parameters:
     - variable: kubernetesVersion
@@ -97,32 +183,49 @@ spec:
     - variable: smallNodeCount
       label: Small Node Count
       description: >
-        Desired quantity for the static small-node pool. Set to 0 to omit this
-        node class from the vCluster.
+        Desired quantity for the static small-capacity pool. Capacity can come
+        from any rack matched by the optional customer/rack selectors.
       defaultValue: "1"
       options:
         - "0"
         - "1"
         - "2"
         - "3"
+        - "4"
 
     - variable: mediumNodeCount
       label: Medium Node Count
       description: >
-        Desired quantity for the static medium-node pool. Keep this at 0 unless
-        you have created medium BareMetalHosts for the demo.
+        Desired quantity for the static medium-capacity pool. The default demo
+        inventory has one managed medium-capacity host.
       defaultValue: "0"
       options:
         - "0"
         - "1"
+        - "2"
 
     - variable: largeNodeCount
       label: Large Node Count
       description: >
-        Desired quantity for the static large-node pool. This is the most
-        AI-cloud-like worker class in the default demo inventory.
+        Desired quantity for the static large-capacity pool. The default demo
+        inventory has one large-capacity host per rack.
       defaultValue: "1"
       options:
         - "0"
         - "1"
         - "2"
+
+    - variable: customerSelector
+      label: Customer Selector
+      description: >
+        Optional comma-separated customer list such as `customer-a` or
+        `customer-a,customer-b`. Leave empty to allow all customers.
+      defaultValue: ""
+
+    - variable: rackSelector
+      label: Rack Selector
+      description: >
+        Optional comma-separated rack list such as `rack-a` or
+        `rack-a,rack-b`. Leave empty to allow all racks for the selected
+        customer set.
+      defaultValue: ""

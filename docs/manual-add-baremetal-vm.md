@@ -31,7 +31,7 @@ export KUBECONFIG=/var/lib/vcluster/kubeconfig.yaml
 ```
 
 If you are adding this support to an already-running demo, re-apply the updated
-NodeProvider and template first so the `medium-node` class exists:
+NodeProvider and template first so the medium-capacity rack-aware classes exist:
 
 ```bash
 kubectl apply -f manifests/platform/node-provider.yaml
@@ -50,17 +50,19 @@ curl http://172.22.0.1:8000/redfish/v1/Systems/ | jq .
 
 ## 1. Pick the VM name, size, MAC, and provisioning IP
 
-Example below: add one dedicated `medium` machine that can be targeted by a
-vCluster without competing with the repo's default `small-node` pool.
+Example below: add one dedicated `medium` machine to the rack-aware inventory.
+In this repo, `medium` is also the cleanest place to demonstrate UEFI-backed
+virtual bare metal without changing the default small/large flows.
 
 ```bash
 export VM_NAME=vmetal-medium-1
 export VM_PROFILE=medium
+export VM_RACK=rack-b
 export VM_VCPUS=3
 export VM_RAM_MB=6144
 export VM_DISK_GB=60
 export VM_MAC=52:54:00:dd:00:00
-export VM_IP=172.22.0.16
+export VM_IP=172.22.0.19
 
 export VM_IMAGE_DIR=/var/lib/libvirt/images
 export VM_DISK_PATH="${VM_IMAGE_DIR}/${VM_NAME}.qcow2"
@@ -73,17 +75,19 @@ export SUSHY_PORT=8000
 
 export BMC_USERNAME=admin
 export BMC_PASSWORD=password
+export OVMF_CODE_PATH=/usr/share/OVMF/OVMF_CODE.secboot.fd
+export OVMF_VARS_PATH=/usr/share/OVMF/OVMF_VARS.fd
 ```
 
 Notes:
 
-- The stock demo already uses `172.22.0.11` through `172.22.0.15`.
+- The stock demo already uses `172.22.0.11` through `172.22.0.18`.
 - `172.22.0.1` is the host bridge IP and `172.22.0.2` is the DHCP VIP.
-- `172.22.0.16+` is a safe place to start for manually added hosts.
-- The `vmetal-size` label must match a node type in
+- `172.22.0.19+` is a safe place to start for manually added hosts.
+- The `vmetal-rack` label must match one of the rack selectors in
   `manifests/platform/node-provider.yaml`.
-- In this repo, `vmetal-size: medium` maps to the dedicated `medium-node`
-  type, which makes it easy to target this host from a vCluster.
+- The `vmetal-size` label must match the intended size class in
+  `manifests/platform/node-provider.yaml`.
 - For a large node, use `VM_PROFILE=large` and the matching large VM sizing.
 
 ## 2. Create the VM disk and define the libvirt VM
@@ -115,7 +119,7 @@ sudo virt-install \
   --memory "${VM_RAM_MB}" \
   --disk "path=${VM_DISK_PATH},format=qcow2,bus=virtio" \
   --network "bridge:${PROVISION_BRIDGE},model=virtio,mac=${VM_MAC}" \
-  --boot "network,hd,menu=off" \
+  --boot "network,hd,menu=off,loader=${OVMF_CODE_PATH},loader.readonly=yes,loader.type=pflash,loader.secure=no,nvram.template=${OVMF_VARS_PATH}" \
   --os-variant "ubuntu24.04" \
   --graphics "none" \
   --console "pty,target_type=serial" \
@@ -127,6 +131,7 @@ sudo virt-install \
 Why these flags matter:
 
 - `--boot network,hd` makes PXE happen first so Ironic can provision the disk
+- `loader=...` and `nvram.template=...` make this VM a UEFI guest instead of a BIOS guest
 - `bus=virtio` means the disk appears as `/dev/vda` in the guest
 - `--noreboot` leaves power control to Metal3/Ironic through Redfish
 
@@ -169,6 +174,8 @@ kind: Secret
 metadata:
   name: ${VM_NAME}-bmc-creds
   namespace: metal3-system
+  labels:
+    environment.metal3.io: baremetal
 type: Opaque
 stringData:
   username: ${BMC_USERNAME}
@@ -197,6 +204,7 @@ metadata:
   namespace: metal3-system
   labels:
     demo: vmetal
+    vmetal-rack: ${VM_RACK}
     vmetal-size: ${VM_PROFILE}
   annotations:
     metal3.vcluster.com/ip-address: "${VM_IP}/24"
@@ -213,6 +221,37 @@ spec:
   rootDeviceHints:
     deviceName: /dev/vda
 EOF
+```
+
+#### Add via UI:
+
+- Name: vmetal-medium-1
+- BMC Credentials
+  - Address: redfish+http://172.22.0.1:8000/redfish/v1/Systems/2b034cba-c55c-4a41-b60b-3662644c53c1
+  - Username: admin
+  - Password: password
+- Boot MAC Address: 52:54:00:dd:00:00
+- IP: 172.22.0.19/24
+- Gateway: 172.22.0.1
+- DNS Servers: 172.22.0.1
+
+After creating the BareMetalHost in the UI, add the rack labels manually.
+The UI does not currently expose arbitrary BareMetalHost labels, but the
+`NodeProvider` selectors require them for capacity matching:
+
+```bash
+kubectl -n metal3-system label baremetalhost "${VM_NAME}" \
+  demo=vmetal \
+  vmetal-rack="${VM_RACK}" \
+  --overwrite
+```
+
+The UI path also does not expose `rootDeviceHints`, which this demo needs so
+Ironic writes the image to the virtio disk presented as `/dev/vda`:
+
+```bash
+kubectl -n metal3-system patch baremetalhost "${VM_NAME}" --type merge -p \
+  '{"spec":{"rootDeviceHints":{"deviceName":"/dev/vda"}}}'
 ```
 
 Important details:
@@ -254,18 +293,84 @@ Helpful spot checks:
 
 ```bash
 kubectl -n metal3-system describe baremetalhost "${VM_NAME}"
-kubectl logs -n metal3-system -l app=ironic -c ironic --tail=50
+kubectl logs -n metal3-system -l app=metal3 -c ironic --tail=50
 ```
 
-## 7. Have vCluster Platform claim and provision it
+## 7. Optional: demo firmware settings through Metal3
+
+Once the host is `available`, Metal3 should create a matching
+`HostFirmwareSettings` and `FirmwareSchema` resource for it. This is the cleanest
+moment to demonstrate firmware management because the host is not yet claimed by
+any workload.
+
+Inspect the firmware resources:
+
+```bash
+kubectl get hostfirmwaresettings "${VM_NAME}" -n metal3-system -o yaml
+kubectl get firmwareschema schema-f229959d -n metal3-system -o yaml
+```
+
+In this emulator-backed environment, `ProcTurboMode` is the most compelling
+CPU-adjacent writable setting for a live demo. It is not a GPU-specific BIOS
+option, but it demonstrates the same workflow you would use on real hardware for
+settings such as SR-IOV or other vendor-specific firmware knobs when the BMC
+exposes them.
+
+Recommended live demo change:
+
+```bash
+kubectl patch hostfirmwaresettings "${VM_NAME}" -n metal3-system --type merge -p '
+spec:
+  settings:
+    ProcTurboMode: Disabled
+'
+```
+
+Watch the change apply:
+
+```bash
+kubectl get hostfirmwaresettings "${VM_NAME}" -n metal3-system -w
+kubectl get baremetalhost "${VM_NAME}" -n metal3-system -w
+```
+
+Expected behavior:
+
+- `ChangeDetected` flips while Metal3/Ironic applies the requested setting
+- the host may move through a short `preparing` cycle and reboot
+- `status.settings.ProcTurboMode` eventually updates to `Disabled`
+
+Confirm the result from both Kubernetes and Redfish:
+
+```bash
+kubectl get hostfirmwaresettings "${VM_NAME}" -n metal3-system -o yaml
+curl "http://${PROVISION_IP}:${SUSHY_PORT}/redfish/v1/Systems/${VM_UUID}/BIOS" | jq .
+```
+
+Safe fallback:
+
+```bash
+kubectl patch hostfirmwaresettings "${VM_NAME}" -n metal3-system --type merge -p '
+spec:
+  settings:
+    QuietBoot: false
+'
+```
+
+Use `QuietBoot` if you want a lower-risk firmware change that is less likely to
+interfere with boot behavior. Avoid using `BootMode` live unless you are
+comfortable risking a failed reprovisioning cycle, and avoid `NumCores` or
+`SecureBootStatus` because they are marked read-only in this schema.
+
+## 8. Have vCluster Platform claim and provision it
 
 Once the host is `available`, it is ready for any matching `NodeClaim`.
 
 In this repo:
 
-- `vmetal-size: small` matches the `small-node` type
-- `vmetal-size: medium` matches the `medium-node` type
-- `vmetal-size: large` matches the `large-node` type
+- `vmetal-rack: rack-a` and `vmetal-rack: rack-b` place hosts into the two
+  simulated racks
+- `vmetal-size: small|medium|large` places hosts into the intended size class
+- the dedicated medium-capacity path is a good fit for a UEFI-focused demo host
 
 The important behavior is:
 
@@ -273,28 +378,30 @@ The important behavior is:
 - actual provisioning starts only when vCluster Platform needs a matching node
 
 For the most repeatable CLI demo, add the host first, wait for `available`, and
-then create or recreate a vCluster that targets `medium-node` explicitly:
+then create or recreate a vCluster that can consume a medium-capacity host:
 
 ```bash
-kubectl apply -f manifests/platform/vmetal-template.yaml
+kubectl apply -f manifests/platform/vmetal-static-template.yaml
 
 cat <<EOF | kubectl apply -f -
 apiVersion: management.loft.sh/v1
 kind: VirtualClusterInstance
 metadata:
-  name: vmetal-demo-medium
+  name: static-medium-tenant
   namespace: p-default
 spec:
   owner:
     user: admin
   templateRef:
-    name: vmetal-template
+    name: vmetal-static-template
   clusterRef:
     cluster: loft-cluster
   parameters: |
-    kubernetesVersion: v1.34.1
-    nodeType: medium-node
-    cpuLimit: "3"
+    kubernetesVersion: v1.34.7
+    smallNodeCount: "0"
+    mediumNodeCount: "1"
+    largeNodeCount: "0"
+    rackSelector: ""
 EOF
 ```
 
@@ -318,7 +425,7 @@ Note:
 - If you need this exact VM to be the one that gets claimed in a demo, make it
   the only `available` host with that label set before recreating the vCluster.
 
-## 8. Cleanup the VM and Kubernetes resources
+## 9. Cleanup the VM and Kubernetes resources
 
 If this VM never moved past `available`, you can skip straight to deleting the
 `BareMetalHost`, Secret, and libvirt VM.
@@ -329,7 +436,7 @@ For the dedicated `medium` demo vCluster from the previous step, the cleanest
 repeatable reset is:
 
 ```bash
-kubectl delete virtualclusterinstance vmetal-demo-medium -n p-default
+kubectl delete virtualclusterinstance static-medium-tenant -n p-default
 kubectl get nodeclaims -A -w
 ```
 

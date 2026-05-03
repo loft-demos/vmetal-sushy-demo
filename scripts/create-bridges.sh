@@ -11,7 +11,7 @@
 # Run after bootstrap-host.sh:
 #   bash scripts/create-bridges.sh
 #
-# Safe to re-run — exits cleanly if the bridge already exists.
+# Safe to re-run — repairs bridge settings if they drift after a reboot.
 
 set -euo pipefail
 
@@ -26,6 +26,9 @@ if [[ -f "${REPO_ROOT}/.env" ]]; then
   # shellcheck source=/dev/null
   source "${REPO_ROOT}/.env"
 fi
+
+PROVISION_PREFIX="${PROVISION_CIDR#*/}"
+PROVISION_ADDR="${PROVISION_IP}/${PROVISION_PREFIX}"
 
 log()  { echo "[create-bridges] $*"; }
 warn() { echo "[create-bridges] WARNING: $*" >&2; }
@@ -47,31 +50,10 @@ if command -v virsh &>/dev/null; then
   done
 fi
 
-# ---------------------------------------------------------------------------
-# 2. Check if bridge already exists
-# ---------------------------------------------------------------------------
-if ip link show "${PROVISION_BRIDGE}" &>/dev/null; then
-  log "Bridge '${PROVISION_BRIDGE}' already exists — nothing to do."
-  ip addr show "${PROVISION_BRIDGE}"
-  exit 0
-fi
-
-# ---------------------------------------------------------------------------
-# 3. Create the bridge using ip commands (works without NetworkManager)
-# ---------------------------------------------------------------------------
-log "Creating bridge '${PROVISION_BRIDGE}' with IP ${PROVISION_IP}/24 (STP disabled)..."
-
-sudo ip link add name "${PROVISION_BRIDGE}" type bridge
-sudo ip link set "${PROVISION_BRIDGE}" type bridge stp_state 0
-sudo ip addr add "${PROVISION_IP}/24" dev "${PROVISION_BRIDGE}"
-sudo ip link set "${PROVISION_BRIDGE}" up
-
-# Make the bridge survive a reboot via a systemd-networkd drop-in.
-# This works on Ubuntu 24.04 server (networkd backend) without NetworkManager.
 NETDEV_FILE="/etc/systemd/network/10-${PROVISION_BRIDGE}.netdev"
 NETWORK_FILE="/etc/systemd/network/10-${PROVISION_BRIDGE}.network"
 
-if [[ ! -f "${NETDEV_FILE}" ]]; then
+write_networkd_files() {
   log "Writing ${NETDEV_FILE} for persistence across reboots..."
   sudo tee "${NETDEV_FILE}" > /dev/null <<EOF
 [NetDev]
@@ -81,23 +63,44 @@ Kind=bridge
 [Bridge]
 STP=no
 EOF
-fi
 
-if [[ ! -f "${NETWORK_FILE}" ]]; then
   log "Writing ${NETWORK_FILE} for persistence across reboots..."
   sudo tee "${NETWORK_FILE}" > /dev/null <<EOF
 [Match]
 Name=${PROVISION_BRIDGE}
 
 [Network]
-Address=${PROVISION_IP}/24
+Address=${PROVISION_ADDR}
 LinkLocalAddressing=no
 IPv6AcceptRA=no
+ConfigureWithoutCarrier=yes
+KeepConfiguration=static
 EOF
+}
+
+# ---------------------------------------------------------------------------
+# 2. Create or repair the bridge using ip commands (works without NetworkManager)
+# ---------------------------------------------------------------------------
+if ip link show "${PROVISION_BRIDGE}" &>/dev/null; then
+  log "Bridge '${PROVISION_BRIDGE}' already exists — repairing state if needed..."
+else
+  log "Creating bridge '${PROVISION_BRIDGE}' with IP ${PROVISION_ADDR} (STP disabled)..."
+  sudo ip link add name "${PROVISION_BRIDGE}" type bridge
 fi
+
+sudo ip link set "${PROVISION_BRIDGE}" type bridge stp_state 0
+sudo ip link set "${PROVISION_BRIDGE}" up
+write_networkd_files
 
 # Reload networkd so it is aware of the new config (the bridge is already up)
 sudo systemctl reload-or-restart systemd-networkd 2>/dev/null || true
+
+if ip -4 addr show dev "${PROVISION_BRIDGE}" | grep -qw "${PROVISION_ADDR}"; then
+  log "Bridge address ${PROVISION_ADDR} already present."
+else
+  log "Assigning ${PROVISION_ADDR} to ${PROVISION_BRIDGE}..."
+  sudo ip addr add "${PROVISION_ADDR}" dev "${PROVISION_BRIDGE}"
+fi
 
 # ---------------------------------------------------------------------------
 # 4. Enable IP forwarding and NAT so provisioning VMs can reach the internet
@@ -158,6 +161,9 @@ sudo netfilter-persistent save
 if ! ip link show "${PROVISION_BRIDGE}" &>/dev/null; then
   die "Bridge '${PROVISION_BRIDGE}' was not created."
 fi
+if ! ip -4 addr show dev "${PROVISION_BRIDGE}" | grep -qw "${PROVISION_ADDR}"; then
+  die "Bridge '${PROVISION_BRIDGE}' is missing ${PROVISION_ADDR}."
+fi
 
 log "Bridge '${PROVISION_BRIDGE}' is up:"
 ip addr show "${PROVISION_BRIDGE}"
@@ -166,7 +172,7 @@ echo ""
 echo "====================================================================="
 echo " Provisioning bridge ready."
 echo " Bridge : ${PROVISION_BRIDGE}"
-echo " Host IP: ${PROVISION_IP}/24"
+echo " Host IP: ${PROVISION_ADDR}"
 echo " Network: ${PROVISION_CIDR}"
 echo " NAT out : ${LAN_INTERFACE} (VMs can reach internet)"
 echo ""

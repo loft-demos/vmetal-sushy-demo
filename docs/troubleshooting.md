@@ -164,6 +164,42 @@ If the files are missing, re-run `create-bridges.sh` — it is idempotent.
 
 ---
 
+### Provisioning bridge exists but lost `172.22.0.1/24` after reboot
+
+**Symptoms**:
+
+- `ip link show br-provision` works, but `ip addr show br-provision` has no `172.22.0.1/24`
+- `dnsmasq` fails with:
+
+```text
+failed to create listening socket for 172.22.0.1: Cannot assign requested address
+```
+
+**Cause**: A carrier-less Linux bridge can come back as `UP` but remain
+unconfigured by `systemd-networkd`, so the static provisioning IP never gets
+re-applied.
+
+**Fix**:
+
+```bash
+ip addr show br-provision
+sudo networkctl status br-provision
+
+# Immediate recovery for the current boot
+sudo ip addr add 172.22.0.1/24 dev br-provision
+sudo ip link set br-provision up
+
+# Re-apply the repo-managed persistence and bridge state
+bash scripts/create-bridges.sh
+sudo systemctl restart dnsmasq
+```
+
+The current `create-bridges.sh` writes `ConfigureWithoutCarrier=yes` and
+`KeepConfiguration=static` to the bridge's `systemd-networkd` config so reruns
+repair this automatically.
+
+---
+
 ### VMs cannot pull container images after provisioning
 
 **Symptom**: Pods on the bare metal node stuck in `ImagePullBackOff`. Error mentions DNS resolution timeout or connection refused to `ghcr.io`, `docker.io`, etc.
@@ -410,6 +446,49 @@ CNI_PLUGINS_VERSION=v1.4.0
 sudo mkdir -p /opt/cni/bin
 curl -fsSL "https://github.com/containernetworking/plugins/releases/download/${CNI_PLUGINS_VERSION}/cni-plugins-linux-amd64-${CNI_PLUGINS_VERSION}.tgz" \
   | sudo tar xz -C /opt/cni/bin
+```
+
+---
+
+### Multus daemonset init container crashloops copying `multus-shim`
+
+**Symptoms**:
+
+- `kubectl get pods -n metal3-system` shows `kube-multus-ds-*` in `Init:Error`
+- `journalctl -u kubelet` shows:
+
+```text
+plugin type="multus-shim" name="multus-cni-network" failed (add): CmdAdd (shim): timed out waiting for the condition
+```
+
+- `crictl ps -a` shows repeated failures for the `install-multus-binary`
+  init container
+
+**Cause**: The thick Multus daemonset copies `multus-shim` and `passthru` onto
+the host at every startup. In this demo, the host already has working copies in
+`/opt/cni/bin`, and after an unclean reboot the init container can get stuck
+trying to overwrite them while the shim is already in use.
+
+Upstream Multus supports disabling this copy path with
+`--skip-multus-binary-copy=true`.
+
+**Fix**:
+
+```bash
+kubectl patch ds kube-multus-ds -n metal3-system --type='json' \
+  -p='[{"op":"replace","path":"/spec/template/spec/initContainers/0/command","value":["sh","-c","test -x /host/opt/cni/bin/multus-shim && test -x /host/opt/cni/bin/passthru && exit 0; cp /usr/src/multus-cni/bin/multus-shim /host/opt/cni/bin/multus-shim && cp /usr/src/multus-cni/bin/passthru /host/opt/cni/bin/passthru"]}]'
+
+kubectl delete pod -n metal3-system -l app=multus --force --grace-period=0
+kubectl get pods -n metal3-system -w
+```
+
+If kubelet and containerd are already wedged from repeated sandbox failures,
+restart them before deleting the Multus pod:
+
+```bash
+sudo systemctl stop kubelet
+sudo systemctl restart containerd
+sudo systemctl start kubelet
 ```
 
 ---

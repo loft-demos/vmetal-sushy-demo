@@ -2,8 +2,10 @@
 #
 # Creates a vCluster in the Default Project that provisions fixed-size bare
 # metal pools via the Metal3 NodeProvider. The default sample requests one
-# small node and one large node, which gives the demo a heterogeneous "AI
-# cloud" shape without depending on dynamic scale-up behavior.
+# small-capacity node, which keeps the stock demo lightweight while still
+# exercising the customer/rack-aware inventory and static pool workflow. Set
+# customerSelector to scope the pools to one or more customers and optionally
+# use rackSelector to narrow that capacity to specific racks.
 #
 # Apply with:
 #   kubectl apply -f manifests/platform/vmetal-static-template.yaml   # once
@@ -34,3 +36,5 @@ spec:
     smallNodeCount: "1"
     mediumNodeCount: "0"
     largeNodeCount: "0"
+    customerSelector: ""
+    rackSelector: ""

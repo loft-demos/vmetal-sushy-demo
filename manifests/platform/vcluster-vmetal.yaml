@@ -1,9 +1,10 @@
 # vcluster-vmetal.yaml — VirtualClusterInstance backed by vmetal-template
 #
 # Creates a vCluster in the Default Project that provisions bare metal nodes
-# via the Metal3 NodeProvider, starting at Kubernetes v1.34.1. The default
-# sample targets the small-node class; set nodeType to medium-node for a
-# 3 vCPU / 6 GiB middle ground.
+# via the Metal3 NodeProvider. The backing inventory is spread across two
+# simulated racks, and node sizing is derived from the inspected hardware. Set
+# customerSelector to scope the pool to one or more customers and optionally
+# use rackSelector to narrow that capacity to specific racks.
 #
 # Apply with:
 #   kubectl apply -f manifests/platform/vmetal-template.yaml   # once
@@ -15,7 +16,7 @@
 #   kubectl get baremetalhosts -n metal3-system
 #
 # Upgrade demo — bump kubernetesVersion and re-apply:
-#   # Edit this file: kubernetesVersion: v1.35.0
+#   # Edit this file: kubernetesVersion: v1.35.4
 #   kubectl apply -f manifests/platform/vcluster-vmetal.yaml
 #   # vCluster Platform performs a rolling control plane upgrade.
 #   # Watch: kubectl get virtualclusterinstances -n p-default -w
@@ -37,5 +38,6 @@ spec:
     cluster: loft-cluster
   parameters: |
     kubernetesVersion: v1.34.7
-    nodeType: small-node
     cpuLimit: "5"
+    customerSelector: ""
+    rackSelector: ""

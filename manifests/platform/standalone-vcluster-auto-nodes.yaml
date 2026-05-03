@@ -34,7 +34,8 @@ spec:
                 - property: node.kubernetes.io/instance-type
                   operator: In
                   values:
-                    - metal3-provider.small-node
+                    - metal3-provider.rack-a-small-node
+                    - metal3-provider.rack-b-small-node
         privateNodes:
           enabled: true
           autoNodes:
@@ -46,7 +47,8 @@ spec:
                     - property: node.kubernetes.io/instance-type
                       operator: In
                       values:
-                        - metal3-provider.large-node
+                        - metal3-provider.rack-a-large-node
+                        - metal3-provider.rack-b-large-node
         networking:
           podCIDR: 10.64.0.0/16
           serviceCIDR: 10.128.0.0/16

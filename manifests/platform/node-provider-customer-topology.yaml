@@ -1,35 +1,36 @@
-# node-provider.yaml — Metal3 NodeProvider for the vmetal-sushy-demo
+# node-provider-customer-topology.yaml — Metal3 NodeProvider with customer+rack topology
 #
-# This resource is applied to vCluster Platform (not to a workload cluster).
-# It tells vMetal to deploy and manage Metal3, Ironic, DHCP, and Multus
-# as a provider on the connected host cluster.
+# This is an alternative to node-provider.yaml for demos where a full rack is
+# assigned to a single customer and vCluster autoNodes should be able to select
+# on both customer assignment and physical rack identity.
 #
-# Before applying:
-#   1. Ensure the host cluster is connected to vCluster Platform and that
-#      the cluster name below matches the name shown in the Platform UI.
-#   2. Adjust the DHCP vip/bridge values if your provisioning network
-#      differs from the defaults (172.22.0.0/24 / br-provision).
+# The selectors below assume BareMetalHosts carry these labels:
+#   demo: vmetal
+#   vmetal-customer: customer-a | customer-b
+#   vmetal-rack: rack-a | rack-b
+#   vmetal-size: small | medium | large
+#
+# Reassigning an entire rack is intentionally a label/selector workflow:
+#   1. Update configs/rack-assignments.csv and regenerate BareMetalHosts, or
+#      patch the affected BareMetalHosts' vmetal-customer labels directly.
+#   2. Update the matching nodeTypes below so vcluster.com/customer reflects
+#      the new owner for that rack.
 #
 # Apply with:
-#   kubectl apply -f manifests/platform/node-provider.yaml
-#
-# Reference:
-#   https://www.vcluster.com/docs/platform/administer/node-providers/metal3
+#   kubectl apply -f manifests/platform/node-provider-customer-topology.yaml
 
 apiVersion: management.loft.sh/v1
 kind: NodeProvider
 metadata:
   name: metal3-provider
 spec:
-  displayName: "vMetal Demo - Metal3 Provider"
+  displayName: "vMetal Demo - Metal3 Provider (Customer + Rack Topology)"
 
   properties:
     vcluster.com/os-image: ubuntu-noble-bootstrap
     vcluster.com/ssh-keys: admin-macbook
     vcluster.com/user-data: |
       #cloud-config
-      # This provider uses the pre-baked ubuntu-noble-bootstrap image, so
-      # ca-certificates, curl, and htop are already present at first boot.
       write_files:
         - path: /etc/vcluster-common
           permissions: "0644"
@@ -44,12 +45,7 @@ spec:
             iface="$(ip route show default 0.0.0.0/0 | awk 'NR==1 {print $5}')"
             [ -n "${iface}" ] || exit 1
 
-            # systemd-resolved does not route *.local to unicast DNS unless the
-            # suffix is configured explicitly as a search or routing domain for
-            # the interface that owns the DNS server.
             resolvectl domain "${iface}" '~vdemo.local'
-            # Route-only domains disable the link's implicit default-route
-            # behavior unless we set it back explicitly.
             resolvectl default-route "${iface}" yes
 
             cert_tmp="$(mktemp)"
@@ -90,24 +86,16 @@ spec:
         - systemctl enable --now vdemo-resolved-domain.service
 
   metal3:
-    # clusterRef identifies the connected host cluster where Metal3 and Ironic
-    # will be deployed. Update `cluster` to match the name of the connected
-    # cluster as it appears in vCluster Platform.
     clusterRef:
       cluster: loft-cluster
       namespace: metal3-system
 
     deploy:
-      # Multus CNI is required so Ironic can attach network interfaces
-      # directly to the provisioning bridge.
       multus:
         enabled: true
         helmValues: |
           namespace: kube-system
 
-      # Metal3 and Ironic handle PXE boot, hardware inspection, and OS
-      # provisioning. These run as platform-managed components; you do not
-      # need to install them manually.
       metal3:
         enabled: true
         helmValues: |
@@ -115,10 +103,6 @@ spec:
             image:
               tag: release-32.0
 
-      # The DHCP server is deployed by the provider and attached to the
-      # provisioning bridge via a Multus NetworkAttachmentDefinition.
-      # vip must be an unused IP on the provisioning subnet.
-      # bridge must match the bridge name created by create-bridges.sh.
       dhcp:
         enabled: true
         helmValues: |
@@ -132,20 +116,8 @@ spec:
                 "ipam": {}
               }
 
-    # nodeTypes define classes of bare-metal machines the provider can claim.
-    # The selector.matchLabels model both rack placement and explicit size
-    # classes on BareMetalHosts. CPU and memory still declare the capacity that
-    # Karpenter sees for each node type.
-    #
-    # resources + properties (cpu/memory) declare node capacity so Karpenter
-    # can make scale-from-zero scheduling decisions for dynamic node pools.
-    # The dynamic vmetal-template intentionally does not constrain size, so it
-    # can fall back to larger node types within the selected rack set.
-    # Each node type also gets an in-built property:
-    #   vcluster.com/node-type = <node type name>
-    # That lets a vCluster target one specific machine class cleanly.
     nodeTypes:
-      - name: rack-a-small-node
+      - name: customer-a-rack-a-small-node
         resources:
           cpu: "2"
           memory: 4Gi
@@ -153,14 +125,17 @@ spec:
           selector:
             matchLabels:
               demo: vmetal
+              vmetal-customer: customer-a
               vmetal-rack: rack-a
               vmetal-size: small
         properties:
+          vcluster.com/customer: customer-a
           vcluster.com/rack: rack-a
+          vcluster.com/profile: small
           vcluster.com/cpu: "2"
           vcluster.com/memory: 4Gi
 
-      - name: rack-a-medium-node
+      - name: customer-a-rack-a-medium-node
         resources:
           cpu: "3"
           memory: 6Gi
@@ -168,14 +143,17 @@ spec:
           selector:
             matchLabels:
               demo: vmetal
+              vmetal-customer: customer-a
               vmetal-rack: rack-a
               vmetal-size: medium
         properties:
+          vcluster.com/customer: customer-a
           vcluster.com/rack: rack-a
+          vcluster.com/profile: medium
           vcluster.com/cpu: "3"
           vcluster.com/memory: 6Gi
 
-      - name: rack-a-large-node
+      - name: customer-a-rack-a-large-node
         resources:
           cpu: "4"
           memory: 8Gi
@@ -183,14 +161,17 @@ spec:
           selector:
             matchLabels:
               demo: vmetal
+              vmetal-customer: customer-a
               vmetal-rack: rack-a
               vmetal-size: large
         properties:
+          vcluster.com/customer: customer-a
           vcluster.com/rack: rack-a
+          vcluster.com/profile: large
           vcluster.com/cpu: "4"
           vcluster.com/memory: 8Gi
 
-      - name: rack-b-small-node
+      - name: customer-b-rack-b-small-node
         resources:
           cpu: "2"
           memory: 4Gi
@@ -198,14 +179,17 @@ spec:
           selector:
             matchLabels:
               demo: vmetal
+              vmetal-customer: customer-b
               vmetal-rack: rack-b
               vmetal-size: small
         properties:
+          vcluster.com/customer: customer-b
           vcluster.com/rack: rack-b
+          vcluster.com/profile: small
           vcluster.com/cpu: "2"
           vcluster.com/memory: 4Gi
 
-      - name: rack-b-medium-node
+      - name: customer-b-rack-b-medium-node
         resources:
           cpu: "3"
           memory: 6Gi
@@ -213,14 +197,17 @@ spec:
           selector:
             matchLabels:
               demo: vmetal
+              vmetal-customer: customer-b
               vmetal-rack: rack-b
               vmetal-size: medium
         properties:
+          vcluster.com/customer: customer-b
           vcluster.com/rack: rack-b
+          vcluster.com/profile: medium
           vcluster.com/cpu: "3"
           vcluster.com/memory: 6Gi
 
-      - name: rack-b-large-node
+      - name: customer-b-rack-b-large-node
         resources:
           cpu: "4"
           memory: 8Gi
@@ -228,9 +215,12 @@ spec:
           selector:
             matchLabels:
               demo: vmetal
+              vmetal-customer: customer-b
               vmetal-rack: rack-b
               vmetal-size: large
         properties:
+          vcluster.com/customer: customer-b
           vcluster.com/rack: rack-b
+          vcluster.com/profile: large
           vcluster.com/cpu: "4"
           vcluster.com/memory: 8Gi

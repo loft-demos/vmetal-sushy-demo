@@ -1,0 +1,29 @@
+# vcluster-tenant-a-rack-a.yaml — example tenant cluster using customer+rack selectors
+#
+# This example is intentionally opinionated for a prospect-style demo:
+#   - Tenant A
+#   - Rack A
+#   - HA control plane (3 replicas, embedded etcd)
+#   - One large private node provisioned through Metal3
+
+apiVersion: management.loft.sh/v1
+kind: VirtualClusterInstance
+metadata:
+  name: tenant-a-rack-a
+  namespace: p-default
+spec:
+  owner:
+    user: admin
+  templateRef:
+    name: vmetal-customer-static-template
+  clusterRef:
+    cluster: loft-cluster
+  parameters: |
+    kubernetesVersion: v1.34.7
+    controlPlaneReplicas: "3"
+    customerSelector: customer-a
+    rackSelector: rack-a
+    smallNodeCount: "0"
+    mediumNodeCount: "0"
+    largeNodeCount: "1"
+

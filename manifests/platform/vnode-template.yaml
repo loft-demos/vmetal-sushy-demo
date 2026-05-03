@@ -1,0 +1,171 @@
+apiVersion: management.loft.sh/v1
+kind: VirtualClusterTemplate
+metadata:
+  name: vnode-demo-template
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    vcluster.com/template-icon: shield.svg
+spec:
+  displayName: vNode Demo Template
+  description: >-
+    This template requires that vNode is installed in the host cluster. The template installs the `vnode` `RuntimeClass` into the vCluster and includes two `Deployments` each with an identical highly privileged `Pod` except that one is configured with `runtimeClassName: vnode` and both target the same node of the host cluster.
+  owner:
+    team: loft-admins
+  template:
+    metadata: {}
+    instanceTemplate:
+      metadata: {}
+    objects: |
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: breakout-test
+        namespace: default
+        labels:
+          app: breakout-test
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: breakout-test
+        template:
+          metadata:
+            annotations:
+              runtimeclass.vnode/disabled: "true"
+            labels:
+              app: breakout-test
+              app.kubernetes.io/part-of: breakout-stack
+              app.kubernetes.io/component: anchor
+          spec:
+            containers:
+              - name: breakout
+                image: busybox
+                command:
+                  - /bin/sh
+                args:
+                  - '-c'
+                  - sleep 10000
+                securityContext:
+                  privileged: true
+            hostNetwork: true
+            hostPID: true
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: breakout-test-vnode
+        namespace: default
+        labels:
+          app: breakout-test-vnode
+      spec:
+        selector:
+          matchLabels:
+            app: breakout-test-vnode
+        template:
+          metadata:
+            labels:
+              app: breakout-test-vnode
+              app.kubernetes.io/part-of: breakout-stack
+          spec:
+            affinity:
+              podAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/part-of: breakout-stack
+                      app.kubernetes.io/component: anchor
+                  topologyKey: kubernetes.io/hostname
+            containers:
+              - name: breakout
+                image: busybox
+                command:
+                  - /bin/sh
+                args:
+                  - '-c'
+                  - sleep 10000
+                securityContext:
+                  privileged: true
+            hostNetwork: true
+            hostPID: true
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: dind-vnode
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: dind-vnode
+        template:
+          metadata:
+            labels:
+              app: dind-vnode
+              app.kubernetes.io/part-of: breakout-stack 
+          spec:
+            affinity:
+              podAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/part-of: breakout-stack
+                      app.kubernetes.io/component: anchor
+                  topologyKey: kubernetes.io/hostname
+            containers:
+            - name: dind
+              image: docker:24.0.2-dind
+              securityContext:
+                privileged: true  # vNode isolates this
+              volumeMounts:
+              - name: docker-lib
+                mountPath: /var/lib/docker
+              - name: docker-run
+                mountPath: /var/run
+              env:
+              - name: DOCKER_TLS_CERTDIR
+                value: ""  # Disables TLS inside DinD for simplicity
+            volumes:
+            - name: docker-lib
+              emptyDir: {}
+            - name: docker-run
+              emptyDir: {}
+    pro:
+      enabled: true
+    helmRelease:
+      chart:
+        version: 0.33.1
+      values: |
+        sleep:
+          auto:
+            afterInactivity: "50m"
+            timezone: '{{ default "America/New_York" .Values.loft.clusterAnnotations.sleepTimeZone }}'
+            wakeup:
+              schedule: 5 7-17 * * 1-5
+        deletion:
+          auto:
+            afterInactivity: 500h
+        sync:
+          toHost:
+            ingresses:
+              enabled: true
+            pods:
+              enabled: true
+              patches:
+                - path: spec.runtimeClassName
+                  expression:  >
+                    context.virtualObject?.metadata?.annotations?.["runtimeclass.vnode/disabled"] === "true"
+                      ? value
+                      : "vnode"
+        controlPlane:
+          backingStore:
+            etcd:
+              embedded:
+                enabled: true
+          coredns:
+            enabled: true
+            embedded: true
+    accessPoint:
+      ingress: {}
+    spaceTemplate:
+      metadata: {}

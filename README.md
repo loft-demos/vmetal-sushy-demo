@@ -128,9 +128,10 @@ ping -c 3 8.8.8.8   # should succeed (confirms NAT is working from provisioning 
 
 ### 3. Create the demo VMs
 
-Creates 3 small VMs and 2 large VMs by default, with an optional medium profile
-available via `.env`. All are attached to `br-provision`. Writes
-`configs/vm-inventory.txt`.
+Creates 4 small VMs, 2 medium VMs, and 2 large VMs by default. All are
+attached to `br-provision` and spread across two simulated racks. The medium
+profile remains the dedicated UEFI demo lane, while the stock small and large
+pools stay on the current BIOS-style boot flow. Writes `configs/vm-inventory.txt`.
 
 ```bash
 bash scripts/create-vms.sh
@@ -142,6 +143,9 @@ Verify:
 sudo virsh list --all
 cat configs/vm-inventory.txt
 ```
+
+Adjust `MEDIUM_VM_COUNT` or `RACK_NAMES` in `.env` if you want a different
+inventory mix, then re-run `bash scripts/create-vms.sh`.
 
 ### 4. Start Sushy Tools
 
@@ -354,6 +358,26 @@ bash scripts/build-custom-os-image.sh \
   --name ubuntu-noble-observability \
   --display-name "Ubuntu 24.04 LTS (Observability Tools)" \
   --packages qemu-guest-agent,curl,jq,nfs-common
+
+# Bootstrap-ready worker image for the Metal3 NodeProvider path
+# If this image builds successfully on your host, you can point the NodeProvider
+# at ubuntu-noble-bootstrap and remove ca-certificates/curl/htop from its
+# cloud-init package list.
+bash scripts/build-custom-os-image.sh \
+  --base-preset ubuntu-server \
+  --name ubuntu-noble-bootstrap \
+  --display-name "Ubuntu 24.04 LTS (Bootstrap Ready)" \
+  --force-ipv4 \
+  --packages ca-certificates,curl,htop
+
+# Slurm-oriented non-Kubernetes compute image
+bash scripts/build-custom-os-image.sh \
+  --base-preset ubuntu-server \
+  --name ubuntu-noble-slurm-compute \
+  --display-name "Ubuntu 24.04 LTS (Slurm Compute Node)" \
+  --force-ipv4 \
+  --enable-universe \
+  --firstboot-install qemu-guest-agent,curl,jq,nfs-common,munge,slurmd,htop
 ```
 
 ### 9. Apply the OSImage, choose a template, and create a VirtualClusterInstance
@@ -367,19 +391,21 @@ kubectl apply -f manifests/platform/os-image.yaml
 # Dynamic VirtualClusterTemplate — on-demand bare metal pool
 kubectl apply -f manifests/platform/vmetal-template.yaml
 
-# Dynamic VirtualClusterInstance — starts with a small-node class and scales within cpuLimit
+# Dynamic VirtualClusterInstance — scales against the rack-aware inventory within cpuLimit
 kubectl apply -f manifests/platform/vcluster-vmetal.yaml
 
 # Static VirtualClusterTemplate — fixed-size bare metal pools per node class
 kubectl apply -f manifests/platform/vmetal-static-template.yaml
 
-# Static VirtualClusterInstance — defaults to 1 small node + 1 large node
+# Static VirtualClusterInstance — defaults to 1 small node
 kubectl apply -f manifests/platform/vcluster-vmetal-static.yaml
 ```
 
-The dynamic demo uses `vmetal-template` and starts at Kubernetes v1.34.1. It automatically claims an available `small-node` BareMetalHost and can scale that pool on demand up to the configured `cpuLimit`.
+The dynamic demo uses `vmetal-template` and starts at Kubernetes v1.34.7. It can scale against the rack-aware Metal3 inventory up to the configured `cpuLimit`. BareMetalHosts are explicitly classified with `vmetal-size`, but the dynamic pool does not constrain size, so it can fall back to larger nodes within the selected rack set when smaller ones are unavailable. Use `customerSelector` to scope capacity to one or more customers and optionally add `rackSelector` to narrow that eligible set to one or more racks.
 
-The static demo uses `vmetal-static-template` and exposes a quantity parameter for each node type (`small`, `medium`, `large`). By default it requests one `small-node` and one `large-node`, which is closer to the fixed reserved-capacity shape we usually see with AI clouds. Keep the requested quantities aligned with the available BareMetalHosts in your local inventory.
+The static demo uses `vmetal-static-template` and exposes a quantity parameter for each capacity class (`small`, `medium`, `large`). Each pool can consume matching nodes from any rack owned by the selected customer set by default, and `rackSelector` lets you further constrain the whole worker set to one rack or a comma-separated rack list when you want to mimic specific failure domains. Keep the requested quantities aligned with the available BareMetalHosts in your local inventory.
+
+For the customer/rack selection model and provisioning flow, see [docs/customer-rack-auto-nodes.md](docs/customer-rack-auto-nodes.md).
 
 Watch the node claim progress:
 
@@ -392,7 +418,7 @@ kubectl -n metal3-system get baremetalhost -w
 Once provisioned, the node joins and system pods start running. The full cycle takes about a minute.
 
 If you cached a non-default image, apply its generated manifest from
-`manifests/platform/os-images/` and point the relevant node types in
+`manifests/platform/os-images/` and point the top-level `properties` block in
 `manifests/platform/node-provider.yaml` at that OSImage name:
 
 ```yaml
@@ -432,10 +458,11 @@ README.md
 configs/
   .env.example          — all configurable variables; copy to .env
   sushy-tools.conf      — sushy-tools emulator config (deployed by start-sushy-tools.sh)
-  vm-inventory.txt      — auto-generated by create-vms.sh; used by generate-bmh.sh
+  vm-inventory.txt      — auto-generated by create-vms.sh; UUID, MAC, profile, firmware
   vcluster.yaml         — vCluster Standalone config template (rendered by install-vcluster.sh)
 docs/
   local-instructions.md — machine-specific step-by-step for the MINISFORUM X1 Pro 370
+  reboot-recovery.md    — targeted recovery steps after a host reboot
   design-notes.md       — architecture decisions, VM sizing, hardware notes
   networking.md         — bridge design, IP allocation, STP, NIC layout
   troubleshooting.md    — common issues and fixes
@@ -443,7 +470,7 @@ docs/
 scripts/
   bootstrap-host.sh         — install packages, enable libvirtd, add user to groups
   create-bridges.sh         — create br-provision Linux bridge + NAT for VM internet access
-  create-vms.sh             — create 3 small + 2 large demo VMs
+  create-vms.sh             — create demo VMs; medium is the optional UEFI lane
   destroy-vms.sh            — tear down demo VMs
   start-sushy-tools.sh      — install and run sushy-tools in foreground
   install-sushy-service.sh  — install sushy-tools as a systemd service
@@ -464,9 +491,9 @@ manifests/
     node-provider.yaml      — Metal3 NodeProvider for vCluster Platform
     os-image.yaml           — default OSImage: Ubuntu 24.04 minimal served from local cache
     os-images/              — generated alternative OSImage manifests
-    vmetal-template.yaml         — dynamic VirtualClusterTemplate with kubernetesVersion + nodeType + cpuLimit
-    vcluster-vmetal.yaml         — VirtualClusterInstance using vmetal-template (starts at v1.34.1)
-    vmetal-static-template.yaml  — static VirtualClusterTemplate with per-node-type quantities
+    vmetal-template.yaml         — dynamic VirtualClusterTemplate with kubernetesVersion + cpuLimit + customerSelector + rackSelector
+    vcluster-vmetal.yaml         — VirtualClusterInstance using vmetal-template (starts at v1.34.7)
+    vmetal-static-template.yaml  — static VirtualClusterTemplate with per-capacity quantities + customerSelector + rackSelector
     vcluster-vmetal-static.yaml  — VirtualClusterInstance using vmetal-static-template
   baremetal/
     bmc-secret.yaml         — BMC credential Secret template
@@ -480,13 +507,13 @@ hack/
 
 ## VM Profiles
 
-| Profile | Count | vCPU | RAM | Disk | Label |
+| Profile | Count | vCPU | RAM | Disk | Rack Placement |
 | --- | --- | --- | --- | --- | --- |
-| Small | 3 | 2 | 4 GB | 40 GB | `vmetal-size: small` |
-| Medium | 0 (optional) | 3 | 6 GB | 60 GB | `vmetal-size: medium` |
-| Large | 2 | 4 | 8 GB | 80 GB | `vmetal-size: large` |
+| Small | 4 | 2 | 4 GB | 40 GB | 2 in `rack-a`, 2 in `rack-b` |
+| Medium | 2 | 3 | 6 GB | 60 GB | 1 in `rack-a`, 1 in `rack-b` |
+| Large | 2 | 4 | 8 GB | 80 GB | 1 in `rack-a`, 1 in `rack-b` |
 
-Adjust counts and sizes in `.env` before running `create-vms.sh`.
+Adjust counts, sizes, and rack names in `.env` before running `create-vms.sh`.
 
 For best disk performance, set `VM_IMAGE_DIR` to a path on one of the 2 TB NVMe SSDs.
 
@@ -494,7 +521,9 @@ For best disk performance, set `VM_IMAGE_DIR` to a path on one of the 2 TB NVMe 
 
 ## Troubleshooting
 
-See [docs/troubleshooting.md](docs/troubleshooting.md) for a full list. Quick checks:
+See [docs/troubleshooting.md](docs/troubleshooting.md) for a full list, and
+[docs/reboot-recovery.md](docs/reboot-recovery.md) for the host-restart path.
+Quick checks:
 
 ### KVM or libvirt permission issues
 

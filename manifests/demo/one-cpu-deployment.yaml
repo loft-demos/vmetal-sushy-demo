@@ -19,8 +19,8 @@ spec:
           command: ["sh", "-c", "sleep 36000"]
           resources:
             requests:
-              cpu: "1"
+              cpu: "2100m"
               memory: 128Mi
             limits:
-              cpu: "1"
+              cpu: "2100m"
               memory: 128Mi

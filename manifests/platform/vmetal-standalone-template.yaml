@@ -35,7 +35,8 @@ spec:
                 - property: node.kubernetes.io/instance-type
                   operator: In
                   values:
-                    - metal3-provider.small-node
+                    - metal3-provider.rack-a-small-node
+                    - metal3-provider.rack-b-small-node
         privateNodes:
           enabled: true
           autoNodes:
@@ -46,21 +47,30 @@ spec:
                   quantity: {{ .Values.smallNodeCount }}
                   nodeTypeSelector:
                     - property: vcluster.com/node-type
-                      value: small-node
+                      operator: In
+                      values:
+                        - rack-a-small-node
+                        - rack-b-small-node
                 {{ end }}
                 {{ if ne .Values.mediumNodeCount "0" }}
                 - name: static-medium-nodes
                   quantity: {{ .Values.mediumNodeCount }}
                   nodeTypeSelector:
                     - property: vcluster.com/node-type
-                      value: medium-node
+                      operator: In
+                      values:
+                        - rack-a-medium-node
+                        - rack-b-medium-node
                 {{ end }}
                 {{ if ne .Values.largeNodeCount "0" }}
                 - name: static-large-nodes
                   quantity: {{ .Values.largeNodeCount }}
                   nodeTypeSelector:
                     - property: vcluster.com/node-type
-                      value: large-node
+                      operator: In
+                      values:
+                        - rack-a-large-node
+                        - rack-b-large-node
                 {{ end }}
         networking:
           podCIDR: 10.64.0.0/16
@@ -84,30 +94,32 @@ spec:
     - variable: smallNodeCount
       label: Small Node Count
       description: >
-        Desired quantity for the static small-node pool. Set to 0 to omit this
-        node class from the vCluster.
+        Desired quantity for the static small-capacity pool. Capacity can come
+        from either simulated rack.
       defaultValue: "1"
       options:
         - "0"
         - "1"
         - "2"
         - "3"
+        - "4"
 
     - variable: mediumNodeCount
       label: Medium Node Count
       description: >
-        Desired quantity for the static medium-node pool. Keep this at 0 unless
-        you have created medium BareMetalHosts for the demo.
+        Desired quantity for the static medium-capacity pool. The default demo
+        inventory has one medium-capacity host per rack.
       defaultValue: "0"
       options:
         - "0"
         - "1"
+        - "2"
 
     - variable: largeNodeCount
       label: Large Node Count
       description: >
-        Desired quantity for the static large-node pool. This is the most
-        AI-cloud-like worker class in the default demo inventory.
+        Desired quantity for the static large-capacity pool. The default demo
+        inventory has one large-capacity host per rack.
       defaultValue: "1"
       options:
         - "0"

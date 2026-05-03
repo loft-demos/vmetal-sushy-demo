@@ -2,6 +2,9 @@
 
 Machine-specific cheat sheet for a full tear-down and re-run. For full context see README.md.
 
+If the host was rebooted and the demo does not come back cleanly, use
+`docs/reboot-recovery.md` before doing a full reinstall.
+
 ## Kernel requirement
 
 The MINISFORUM X1 Pro 370 uses the AMD Ryzen AI 9 HX370 (Strix Point). The Ubuntu 24.04 GA kernel (`6.8`) does not include the driver for its built-in 5G Ethernet NICs (`r8169` variant on this chipset). You need the **HWE kernel** to get a working network interface:
@@ -123,12 +126,16 @@ bash scripts/create-vms.sh
 
 `create-bridges.sh` creates `br-provision` at `172.22.0.1/24` with STP disabled and sets up NAT masquerade via `enp197s0` so provisioning VMs can reach the internet.
 
+By default this creates the stock 3 small + 2 large BIOS-style demo nodes. If
+you want one dedicated UEFI-backed demo node, set `MEDIUM_VM_COUNT=1` in `.env`
+before running `create-vms.sh`; the medium profile defaults to UEFI firmware.
+
 Verify:
 
 ```bash
 ip addr show br-provision        # should show 172.22.0.1/24
 sudo virsh list --all            # 5 VMs, all shut off
-cat configs/vm-inventory.txt     # UUID, MAC, profile for each VM
+cat configs/vm-inventory.txt     # UUID, MAC, profile, firmware for each VM
 ```
 
 ---
@@ -303,6 +310,15 @@ bash scripts/build-custom-os-image.sh \
   --name ubuntu-noble-observability \
   --display-name "Ubuntu 24.04 LTS (Observability Tools)" \
   --packages qemu-guest-agent,curl,jq,nfs-common
+
+# Slurm-oriented non-Kubernetes compute image
+bash scripts/build-custom-os-image.sh \
+  --base-preset ubuntu-server \
+  --name ubuntu-noble-slurm-compute \
+  --display-name "Ubuntu 24.04 LTS (Slurm Compute Node)" \
+  --force-ipv4 \
+  --enable-universe \
+  --firstboot-install qemu-guest-agent,curl,jq,nfs-common,munge,slurmd,htop
 ```
 
 Verify:
@@ -325,19 +341,23 @@ kubectl apply -f manifests/platform/os-image.yaml
 # Dynamic VirtualClusterTemplate (parameterized template for vMetal bare metal vClusters)
 kubectl apply -f manifests/platform/vmetal-template.yaml
 
-# Dynamic VirtualClusterInstance (creates vmetal-demo, claims one small BareMetalHost)
+# Dynamic VirtualClusterInstance (creates vmetal-demo and can be pinned with rackSelector)
 kubectl apply -f manifests/platform/vcluster-vmetal.yaml
 
 # Static VirtualClusterTemplate (fixed-size pools per node class)
 kubectl apply -f manifests/platform/vmetal-static-template.yaml
 
-# Static VirtualClusterInstance (creates vmetal-static-demo with 1 small + 1 large node)
+# Static VirtualClusterInstance (creates vmetal-static-demo and can be pinned with rackSelector)
 kubectl apply -f manifests/platform/vcluster-vmetal-static.yaml
 ```
 
 If you cached a non-default image, apply its generated manifest from
 `manifests/platform/os-images/` and update the relevant node type in
 `manifests/platform/node-provider.yaml` to use that OSImage name.
+
+To target specific racks, edit the instance manifest and set
+`rackSelector: "rack-a"` or `rackSelector: "rack-a,rack-b"` in the `parameters`
+block before applying it. The default is empty, which means all racks.
 
 Watch the provisioning pipeline:
 

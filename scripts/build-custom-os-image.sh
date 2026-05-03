@@ -14,6 +14,14 @@
 #     --name ubuntu-noble-observability \
 #     --display-name "Ubuntu 24.04 LTS (Observability Tools)" \
 #     --packages qemu-guest-agent,curl,jq,nfs-common
+#
+#   bash scripts/build-custom-os-image.sh \
+#     --base-preset ubuntu-server \
+#     --name ubuntu-noble-slurm-compute \
+#     --display-name "Ubuntu 24.04 LTS (Slurm Compute Node)" \
+#     --force-ipv4 \
+#     --enable-universe \
+#     --firstboot-install qemu-guest-agent,curl,jq,nfs-common,munge,slurmd,htop
 
 set -euo pipefail
 
@@ -31,8 +39,12 @@ IMAGE_NAME="ubuntu-noble-custom"
 DISPLAY_NAME="Ubuntu 24.04 LTS (Custom)"
 OUTPUT_FILE=""
 PACKAGES=""
+FIRSTBOOT_INSTALLS=()
 FORCE="false"
+FORCE_IPV4="false"
+ENABLE_UNIVERSE="false"
 RUN_COMMANDS=()
+FIRSTBOOT_COMMANDS=()
 COPY_INS=()
 
 log()  { echo "[build-custom-os-image] $*"; }
@@ -50,7 +62,11 @@ Options:
   --display-name <label>      OSImage spec.displayName
   --output-file <filename>    Output filename in IMAGE_CACHE_DIR
   --packages <pkg1,pkg2>      Comma-separated apt packages to install
+  --force-ipv4                Force apt to use IPv4 during customization
+  --enable-universe           Enable the Ubuntu universe repo before installs
   --run-command <command>     Additional virt-customize command; may be repeated
+  --firstboot-install <pkgs>  Install packages on first boot; may be repeated
+  --firstboot-command <cmd>   Run a command on first boot; may be repeated
   --copy-in <src:destdir>     Copy files into image; may be repeated
   --force                     Overwrite an existing output image
   --help                      Show this help
@@ -65,6 +81,13 @@ Examples:
     --name ubuntu-noble-ci \
     --packages docker.io,git,make \
     --run-command 'systemctl enable qemu-guest-agent'
+
+  bash scripts/build-custom-os-image.sh \
+    --base-preset ubuntu-server \
+    --name ubuntu-noble-slurm-compute \
+    --force-ipv4 \
+    --enable-universe \
+    --firstboot-install qemu-guest-agent,curl,jq,nfs-common,munge,slurmd,htop
 EOF
 }
 
@@ -94,8 +117,24 @@ while [[ $# -gt 0 ]]; do
       PACKAGES="${2:-}"
       shift 2
       ;;
+    --force-ipv4)
+      FORCE_IPV4="true"
+      shift
+      ;;
+    --enable-universe)
+      ENABLE_UNIVERSE="true"
+      shift
+      ;;
     --run-command)
       RUN_COMMANDS+=("${2:-}")
+      shift 2
+      ;;
+    --firstboot-install)
+      FIRSTBOOT_INSTALLS+=("${2:-}")
+      shift 2
+      ;;
+    --firstboot-command)
+      FIRSTBOOT_COMMANDS+=("${2:-}")
       shift 2
       ;;
     --copy-in)
@@ -153,6 +192,16 @@ cp --reflink=auto "${BASE_FILE}" "${OUTPUT_PATH}"
 
 args=(-a "${OUTPUT_PATH}")
 
+if [[ "${FORCE_IPV4}" == "true" ]]; then
+  log "Configuring apt inside the image to prefer IPv4..."
+  args+=(--run-command "printf 'Acquire::ForceIPv4 \"true\";\\n' >/etc/apt/apt.conf.d/99force-ipv4")
+fi
+
+if [[ "${ENABLE_UNIVERSE}" == "true" ]]; then
+  log "Ensuring the Ubuntu universe repository is enabled inside the image..."
+  args+=(--run-command "if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then tmp=\$(mktemp); awk '/^Components:/ { seen=0; for (i = 1; i <= NF; i++) if (\$i == \"universe\") seen=1; if (!seen) \$0 = \$0 \" universe\" } { print }' /etc/apt/sources.list.d/ubuntu.sources >\"\${tmp}\" && cat \"\${tmp}\" >/etc/apt/sources.list.d/ubuntu.sources && rm -f \"\${tmp}\"; elif [ -f /etc/apt/sources.list ]; then sed -i -E '/^deb / { / universe( |$)/! s/$/ universe/ }' /etc/apt/sources.list; fi")
+fi
+
 if [[ -n "${PACKAGES}" ]]; then
   args+=(--install "${PACKAGES}")
 fi
@@ -163,6 +212,14 @@ done
 
 for run_cmd in "${RUN_COMMANDS[@]}"; do
   args+=(--run-command "${run_cmd}")
+done
+
+for firstboot_install in "${FIRSTBOOT_INSTALLS[@]}"; do
+  args+=(--firstboot-install "${firstboot_install}")
+done
+
+for firstboot_cmd in "${FIRSTBOOT_COMMANDS[@]}"; do
+  args+=(--firstboot-command "${firstboot_cmd}")
 done
 
 log "Customizing image with virt-customize..."

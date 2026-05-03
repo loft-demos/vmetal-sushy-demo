@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # generate-bmh.sh — generate BareMetalHost and Secret YAML from VM inventory
 #
-# Reads configs/vm-inventory.txt (written by scripts/create-vms.sh) and
-# prints ready-to-apply Kubernetes YAML for each VM: one Secret and one
-# BareMetalHost per entry.
+# Reads configs/vm-inventory.txt (written either by scripts/create-vms.sh or
+# by hack/discover-redfish-inventory.sh) and prints ready-to-apply Kubernetes
+# YAML for each machine.
+#
+# Supported inventory formats:
+#   NAME UUID MAC PROFILE FIRMWARE RACK
+#   NAME UUID MAC PROFILE FIRMWARE RACK CUSTOMER
+#   NAME UUID MAC PROFILE FIRMWARE RACK CUSTOMER BMC_ADDRESS
 #
 # Usage:
 #   # Preview
@@ -26,6 +31,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Load defaults
 BMC_USERNAME="${BMC_USERNAME:-admin}"
 BMC_PASSWORD="${BMC_PASSWORD:-password}"
+BMC_SHARED_SECRET_NAME="${BMC_SHARED_SECRET_NAME:-}"
 PROVISION_IP="${PROVISION_IP:-172.22.0.1}"
 PROVISION_CIDR="${PROVISION_CIDR:-172.22.0.0/24}"
 PROVISION_GATEWAY="${PROVISION_GATEWAY:-172.22.0.1}"
@@ -59,12 +65,15 @@ ip_prefix="${VM_IP_START%.*}"   # e.g. 172.22.0
 ip_last="${VM_IP_START##*.}"    # e.g. 11
 prefix_len="${PROVISION_CIDR##*/}"  # e.g. 24
 ip_index=0
+shared_secret_emitted=false
 
 while read -r line; do
   # Skip comments and blank lines
   [[ "${line}" =~ ^#.*$ || -z "${line}" ]] && continue
 
-  read -r vm_name uuid mac profile <<< "${line}"
+  read -r vm_name uuid mac profile firmware rack customer bmc_address <<< "${line}"
+  rack="${rack:-rack-a}"
+  customer="${customer:-unassigned}"
 
   # Assign sequential IP from provisioning subnet
   vm_ip="${ip_prefix}.$((ip_last + ip_index))"
@@ -72,10 +81,29 @@ while read -r line; do
 
   # Kubernetes resource names must be lowercase DNS labels
   k8s_name="${vm_name}"
-  secret_name="${k8s_name}-bmc-creds"
-  redfish_addr="redfish+http://${PROVISION_IP}:${SUSHY_PORT}/redfish/v1/Systems/${uuid}"
+  secret_name="${BMC_SHARED_SECRET_NAME:-${k8s_name}-bmc-creds}"
+  redfish_addr="${bmc_address:-redfish+http://${PROVISION_IP}:${SUSHY_PORT}/redfish/v1/Systems/${uuid}}"
 
-  cat <<EOF
+  if [[ -n "${BMC_SHARED_SECRET_NAME}" && "${shared_secret_emitted}" == "false" ]]; then
+    cat <<EOF
+---
+# Shared Secret: BMC credentials for all generated hosts
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${secret_name}
+  namespace: metal3-system
+type: Opaque
+stringData:
+  username: ${BMC_USERNAME}
+  password: ${BMC_PASSWORD}
+EOF
+    shared_secret_emitted=true
+  fi
+
+  if [[ -z "${BMC_SHARED_SECRET_NAME}" ]]; then
+
+    cat <<EOF
 ---
 # Secret: BMC credentials for ${vm_name}
 apiVersion: v1
@@ -87,8 +115,12 @@ type: Opaque
 stringData:
   username: ${BMC_USERNAME}
   password: ${BMC_PASSWORD}
+EOF
+  fi
+
+  cat <<EOF
 ---
-# BareMetalHost: ${vm_name} (profile: ${profile})
+# BareMetalHost: ${vm_name} (profile: ${profile}, rack: ${rack}, customer: ${customer}${firmware:+, firmware: ${firmware}})
 apiVersion: metal3.io/v1alpha1
 kind: BareMetalHost
 metadata:
@@ -96,6 +128,8 @@ metadata:
   namespace: metal3-system
   labels:
     demo: vmetal
+    vmetal-customer: ${customer}
+    vmetal-rack: ${rack}
     vmetal-size: ${profile}
   annotations:
     metal3.vcluster.com/ip-address: "${vm_ip}/${prefix_len}"

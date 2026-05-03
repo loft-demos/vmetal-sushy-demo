@@ -18,6 +18,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 PROVISION_BRIDGE="${PROVISION_BRIDGE:-br-provision}"
 SUSHY_PORT="${SUSHY_PORT:-8000}"
+SUSHY_UPSTREAM_PORT="${SUSHY_UPSTREAM_PORT:-8001}"
 
 if [[ -f "${REPO_ROOT}/.env" ]]; then
   # shellcheck source=/dev/null
@@ -59,6 +60,12 @@ read -rp "Continue? [y/N] " confirm
 # ---------------------------------------------------------------------------
 log "Stopping sushy-tools..."
 
+if sudo systemctl is-active --quiet redfish-topology 2>/dev/null; then
+  log "Stopping redfish-topology systemd service..."
+  sudo systemctl stop redfish-topology
+  sudo systemctl disable redfish-topology 2>/dev/null || true
+fi
+
 if sudo systemctl is-active --quiet sushy-tools 2>/dev/null; then
   log "Stopping sushy-tools systemd service..."
   sudo systemctl stop sushy-tools
@@ -71,6 +78,11 @@ else
   else
     log "sushy-tools does not appear to be running."
   fi
+fi
+
+if ss -ltnup 2>/dev/null | grep -q ":${SUSHY_UPSTREAM_PORT}"; then
+  log "Killing upstream sushy-emulator process on port ${SUSHY_UPSTREAM_PORT}..."
+  sudo fuser -k "${SUSHY_UPSTREAM_PORT}/tcp" 2>/dev/null || warn "fuser failed — upstream sushy may already be stopped"
 fi
 
 # ---------------------------------------------------------------------------

@@ -142,11 +142,22 @@ This establishes the emulated hardware layer without spending the meeting on set
 
 ### 3. Show the machine-management layer first
 
-Apply or inspect:
+Apply, then inspect in the UI:
 
 ```bash
 kubectl apply -f manifests/platform/os-image.yaml
 kubectl apply -f manifests/platform/node-provider.yaml
+```
+
+Show in the Platform UI:
+
+- the `metal3-provider` NodeProvider and its readiness/status
+- the `ubuntu-noble` OSImage and the image properties it exposes
+- the node types exposed by the provider and how they map to machine classes
+
+Keep `kubectl` as a backup verification path, not the main demo surface:
+
+```bash
 kubectl get osimage
 kubectl get nodeprovider metal3-provider -w
 ```
@@ -167,8 +178,8 @@ Open:
 Call out specifically:
 
 - `vcluster.com/user-data` for cloud-init style customization
-- per-node-type image selection through `vcluster.com/os-image`
-- multiple node classes: `small-node`, `medium-node`, `large-node`
+- provider-level image selection through `vcluster.com/os-image`
+- rack-aware node classes spanning `small`, `medium`, and `large` capacities
 
 ### 4. Register hardware and show inventory becoming consumable
 
@@ -245,7 +256,7 @@ Talk track:
 
 If you need a stronger angle on over-requesting:
 
-- say that `large-node` is a stand-in for a scarce accelerator class
+- say that the large-capacity rack pools are a stand-in for a scarce accelerator class
 - explain that the same self-service boundary and machine lifecycle apply even
   when the scarce dimension is GPUs instead of CPUs
 
@@ -256,7 +267,7 @@ Edit the vCluster instance and bump the control-plane version:
 ```bash
 # edit manifests/platform/vcluster-vmetal.yaml or
 # manifests/platform/vcluster-vmetal-static.yaml
-# change kubernetesVersion from v1.34.1 to v1.35.0
+# change kubernetesVersion from v1.34.7 to v1.35.4
 kubectl apply -f manifests/platform/vcluster-vmetal.yaml
 # or:
 # kubectl apply -f manifests/platform/vcluster-vmetal-static.yaml
