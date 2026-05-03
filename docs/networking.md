@@ -135,11 +135,7 @@ annotations:
   metal3.vcluster.com/dns-servers: "172.22.0.1"
 ```
 
-In this demo, the safest DNS server for provisioned nodes is the host bridge IP
-(`172.22.0.1` by default), where `scripts/install-dnsmasq.sh` can answer both
-`*.vdemo.local` and public lookups via upstream forwarders. `hack/generate-bmh.sh`
-adds these annotations automatically by assigning sequential IPs starting at
-`VM_IP_START`.
+In this demo, the safest DNS server for provisioned nodes is the host bridge IP (`172.22.0.1` by default), where `scripts/install-dnsmasq.sh` can answer both `*.vdemo.local` and public lookups via upstream forwarders. `hack/generate-bmh.sh` adds these annotations automatically by assigning sequential IPs starting at `VM_IP_START`.
 
 ---
 

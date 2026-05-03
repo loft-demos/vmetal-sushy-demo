@@ -1,8 +1,8 @@
 # node-provider-customer-topology.yaml — Metal3 NodeProvider with customer+rack topology
 #
-# This is an alternative to node-provider.yaml for demos where a full rack is
-# assigned to a single customer and vCluster autoNodes should be able to select
-# on both customer assignment and physical rack identity.
+# This is an alternative to node-provider.yaml for demos where vCluster
+# autoNodes should be able to select on both customer assignment and physical
+# rack identity.
 #
 # The selectors below assume BareMetalHosts carry these labels:
 #   demo: vmetal
@@ -10,11 +10,12 @@
 #   vmetal-rack: rack-a | rack-b
 #   vmetal-size: small | medium | large
 #
-# Reassigning an entire rack is intentionally a label/selector workflow:
+# Reassigning an entire rack is intentionally a label-first workflow:
 #   1. Update configs/rack-assignments.csv and regenerate BareMetalHosts, or
 #      patch the affected BareMetalHosts' vmetal-customer labels directly.
-#   2. Update the matching nodeTypes below so vcluster.com/customer reflects
-#      the new owner for that rack.
+#   2. Re-apply this manifest if you changed the available rack set. The
+#      customer/rack/size permutations are already defined below, so a label
+#      change alone is enough for normal customer re-assignment flows.
 #
 # Apply with:
 #   kubectl apply -f manifests/platform/node-provider-customer-topology.yaml
@@ -171,6 +172,60 @@ spec:
           vcluster.com/cpu: "4"
           vcluster.com/memory: 8Gi
 
+      - name: customer-a-rack-b-small-node
+        resources:
+          cpu: "2"
+          memory: 4Gi
+        bareMetalHosts:
+          selector:
+            matchLabels:
+              demo: vmetal
+              vmetal-customer: customer-a
+              vmetal-rack: rack-b
+              vmetal-size: small
+        properties:
+          vcluster.com/customer: customer-a
+          vcluster.com/rack: rack-b
+          vcluster.com/profile: small
+          vcluster.com/cpu: "2"
+          vcluster.com/memory: 4Gi
+
+      - name: customer-a-rack-b-medium-node
+        resources:
+          cpu: "3"
+          memory: 6Gi
+        bareMetalHosts:
+          selector:
+            matchLabels:
+              demo: vmetal
+              vmetal-customer: customer-a
+              vmetal-rack: rack-b
+              vmetal-size: medium
+        properties:
+          vcluster.com/customer: customer-a
+          vcluster.com/rack: rack-b
+          vcluster.com/profile: medium
+          vcluster.com/cpu: "3"
+          vcluster.com/memory: 6Gi
+
+      - name: customer-a-rack-b-large-node
+        resources:
+          cpu: "4"
+          memory: 8Gi
+        bareMetalHosts:
+          selector:
+            matchLabels:
+              demo: vmetal
+              vmetal-customer: customer-a
+              vmetal-rack: rack-b
+              vmetal-size: large
+        properties:
+          vcluster.com/customer: customer-a
+          vcluster.com/rack: rack-b
+          vcluster.com/profile: large
+          vcluster.com/cpu: "4"
+          vcluster.com/memory: 8Gi
+
       - name: customer-b-rack-b-small-node
         resources:
           cpu: "2"
@@ -221,6 +276,60 @@ spec:
         properties:
           vcluster.com/customer: customer-b
           vcluster.com/rack: rack-b
+          vcluster.com/profile: large
+          vcluster.com/cpu: "4"
+          vcluster.com/memory: 8Gi
+
+      - name: customer-b-rack-a-small-node
+        resources:
+          cpu: "2"
+          memory: 4Gi
+        bareMetalHosts:
+          selector:
+            matchLabels:
+              demo: vmetal
+              vmetal-customer: customer-b
+              vmetal-rack: rack-a
+              vmetal-size: small
+        properties:
+          vcluster.com/customer: customer-b
+          vcluster.com/rack: rack-a
+          vcluster.com/profile: small
+          vcluster.com/cpu: "2"
+          vcluster.com/memory: 4Gi
+
+      - name: customer-b-rack-a-medium-node
+        resources:
+          cpu: "3"
+          memory: 6Gi
+        bareMetalHosts:
+          selector:
+            matchLabels:
+              demo: vmetal
+              vmetal-customer: customer-b
+              vmetal-rack: rack-a
+              vmetal-size: medium
+        properties:
+          vcluster.com/customer: customer-b
+          vcluster.com/rack: rack-a
+          vcluster.com/profile: medium
+          vcluster.com/cpu: "3"
+          vcluster.com/memory: 6Gi
+
+      - name: customer-b-rack-a-large-node
+        resources:
+          cpu: "4"
+          memory: 8Gi
+        bareMetalHosts:
+          selector:
+            matchLabels:
+              demo: vmetal
+              vmetal-customer: customer-b
+              vmetal-rack: rack-a
+              vmetal-size: large
+        properties:
+          vcluster.com/customer: customer-b
+          vcluster.com/rack: rack-a
           vcluster.com/profile: large
           vcluster.com/cpu: "4"
           vcluster.com/memory: 8Gi

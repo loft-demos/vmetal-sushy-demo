@@ -1,24 +1,19 @@
 # Customer + Rack Topology Flow
 
-This runbook adds a more realistic inventory and tenancy model on top of the
-existing `vmetal-sushy-demo` repo.
+This runbook adds a more realistic inventory and tenancy model on top of the existing `vmetal-sushy-demo` repo.
 
-For how that topology is consumed by `NodeProvider` node types and vCluster
-Auto Nodes, see [customer-rack-auto-nodes.md](./customer-rack-auto-nodes.md).
+For how that topology is consumed by `NodeProvider` node types and vCluster Auto Nodes, see [customer-rack-auto-nodes.md](./customer-rack-auto-nodes.md).
 
 The key modeling choice is:
 
 - `Redfish` carries physical topology such as rack placement.
 - A separate assignment map carries `customer -> rack` assignment.
 
-That split is closer to real environments. BMCs usually know where a chassis
-is physically installed only if someone populated that metadata, while customer
-customer assignment normally lives in a CMDB, CRM, or an allocation service.
+That split is closer to real environments. BMCs usually know where a chassis is physically installed only if someone populated that metadata, while customer assignment normally lives in a CMDB, CRM, or an allocation service.
 
 ## Realistic Redfish payload shape
 
-If you want a semi-real mock, the most natural place for rack location is the
-`Chassis` resource, not an invented OEM field on `ComputerSystem`.
+If you want a semi-real mock, the most natural place for rack location is the `Chassis` resource, not an invented OEM field on `ComputerSystem`.
 
 Example:
 
@@ -58,8 +53,7 @@ For this repo's automation, the script follows:
 3. `Chassis.Location.Placement.Rack`
 4. `Systems/<id>/EthernetInterfaces`
 
-That yields the `MAC + BMC address + rack` inputs needed for BareMetalHost
-creation.
+That yields the `MAC + BMC address + rack` inputs needed for BareMetalHost creation.
 
 ## Stage 1 — Bulk onboarding
 
@@ -70,7 +64,7 @@ cp configs/rack-assignments.csv.example configs/rack-assignments.csv
 ```
 
 2. Discover inventory from Redfish and normalize it into the repo inventory
-   format:
+format:
 
 ```bash
 bash hack/discover-redfish-inventory.sh
@@ -128,8 +122,7 @@ That lines up with the prospect flow:
 
 ## Rack reassignment workflow
 
-For a "rack moves from Customer A to Customer B" story, keep the workflow
-CRD-driven and visible:
+For a "rack moves from Customer A to Customer B" story, keep the workflow CRD-driven and visible:
 
 1. Update `configs/rack-assignments.csv`
 2. Re-run `bash hack/discover-redfish-inventory.sh`
@@ -140,11 +133,7 @@ BMC_SHARED_SECRET_NAME=redfish-shared-creds \
   bash hack/generate-bmh.sh | kubectl apply -f -
 ```
 
-4. Update the matching rack nodeTypes in
-   `manifests/platform/node-provider-customer-topology.yaml` so the
-   `vcluster.com/customer` property and `bareMetalHosts.selector.matchLabels`
-   reflect the new owner
+4. Update the matching rack nodeTypes in `manifests/platform/node-provider-customer-topology.yaml` so the `vcluster.com/customer` property and `bareMetalHosts.selector.matchLabels` reflect the new customer assignment
 5. Re-apply the NodeProvider manifest
 
-That gives you a credible "rack handoff is a label/selector change" narrative
-without pretending customer assignment is a native Redfish concept.
+That gives you a credible "rack handoff is a label/selector change" narrative without pretending customer assignment is a native Redfish concept.

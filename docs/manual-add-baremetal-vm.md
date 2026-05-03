@@ -1,15 +1,13 @@
 # Manual CLI Runbook: Add and Remove One Bare Metal VM
 
-This guide shows the fully manual path for adding one extra libvirt VM to the
-demo and registering it as a bare metal machine for vMetal/Metal3.
+This guide shows the fully manual path for adding one extra libvirt VM to the demo and registering it as a bare metal machine for vMetal/Metal3.
 
 It intentionally does not use:
 
 - `scripts/create-vms.sh`
 - `hack/generate-bmh.sh`
 
-Use this when you want a deterministic, CLI-only demo of "one more server was
-added to the pool" and you also want a clean teardown path afterward.
+Use this when you want a deterministic, CLI-only demo of "one more server was added to the pool" and you also want a clean teardown path afterward.
 
 ## Assumptions
 
@@ -19,10 +17,9 @@ This runbook assumes the base demo is already installed and healthy:
 - `sushy-tools` is running and reachable on `http://172.22.0.1:8000`
 - the `metal3-provider` `NodeProvider` is `Ready`
 - the Ubuntu image is cached locally and `manifests/platform/os-image.yaml` has
-  already been applied
+already been applied
 
-If you need the full environment setup, follow the main flow in
-`README.md` through Step 8 first.
+If you need the full environment setup, follow the main flow in `README.md` through Step 8 first.
 
 Start by pointing `kubectl` at the platform cluster:
 
@@ -30,8 +27,7 @@ Start by pointing `kubectl` at the platform cluster:
 export KUBECONFIG=/var/lib/vcluster/kubeconfig.yaml
 ```
 
-If you are adding this support to an already-running demo, re-apply the updated
-NodeProvider and template first so the medium-capacity rack-aware classes exist:
+If you are adding this support to an already-running demo, re-apply the updated NodeProvider and template first so the medium-capacity rack-aware classes exist:
 
 ```bash
 kubectl apply -f manifests/platform/node-provider.yaml
@@ -50,9 +46,7 @@ curl http://172.22.0.1:8000/redfish/v1/Systems/ | jq .
 
 ## 1. Pick the VM name, size, MAC, and provisioning IP
 
-Example below: add one dedicated `medium` machine to the rack-aware inventory.
-In this repo, `medium` is also the cleanest place to demonstrate UEFI-backed
-virtual bare metal without changing the default small/large flows.
+Example below: add one dedicated `medium` machine to the rack-aware inventory. In this repo, `medium` is also the cleanest place to demonstrate UEFI-backed virtual bare metal without changing the default small/large flows.
 
 ```bash
 export VM_NAME=vmetal-medium-1
@@ -85,9 +79,9 @@ Notes:
 - `172.22.0.1` is the host bridge IP and `172.22.0.2` is the DHCP VIP.
 - `172.22.0.19+` is a safe place to start for manually added hosts.
 - The `vmetal-rack` label must match one of the rack selectors in
-  `manifests/platform/node-provider.yaml`.
+`manifests/platform/node-provider.yaml`.
 - The `vmetal-size` label must match the intended size class in
-  `manifests/platform/node-provider.yaml`.
+`manifests/platform/node-provider.yaml`.
 - For a large node, use `VM_PROFILE=large` and the matching large VM sizing.
 
 ## 2. Create the VM disk and define the libvirt VM
@@ -100,8 +94,7 @@ if sudo virsh dominfo "${VM_NAME}" >/dev/null 2>&1; then
 fi
 ```
 
-If that prints `Domain already exists`, pick a different `VM_NAME` or clean up
-the old one first.
+If that prints `Domain already exists`, pick a different `VM_NAME` or clean up the old one first.
 
 Create the disk:
 
@@ -162,8 +155,7 @@ Verify the Redfish endpoint for this exact VM:
 curl "http://${PROVISION_IP}:${SUSHY_PORT}/redfish/v1/Systems/${VM_UUID}/" | jq .
 ```
 
-If that curl fails, stop here and fix `sushy-tools` before creating Kubernetes
-resources.
+If that curl fails, stop here and fix `sushy-tools` before creating Kubernetes resources.
 
 ## 4. Create the BMC credentials Secret
 
@@ -191,9 +183,7 @@ kubectl -n metal3-system get secret "${VM_NAME}-bmc-creds"
 
 ## 5. Create the BareMetalHost manually
 
-For this Sushy/vMetal demo, use the normal Metal3 inspection flow. In testing,
-forcing `inspect.metal3.io: disabled` caused hosts to get stuck in
-`preparing`, so it is not the default here.
+For this Sushy/vMetal demo, use the normal Metal3 inspection flow. In testing, forcing `inspect.metal3.io: disabled` caused hosts to get stuck in `preparing`, so it is not the default here.
 
 ```bash
 cat <<EOF | kubectl apply -f -
@@ -235,9 +225,7 @@ EOF
 - Gateway: 172.22.0.1
 - DNS Servers: 172.22.0.1
 
-After creating the BareMetalHost in the UI, add the rack labels manually.
-The UI does not currently expose arbitrary BareMetalHost labels, but the
-`NodeProvider` selectors require them for capacity matching:
+After creating the BareMetalHost in the UI, add the rack labels manually. The UI does not currently expose arbitrary BareMetalHost labels, but the `NodeProvider` selectors require them for capacity matching:
 
 ```bash
 kubectl -n metal3-system label baremetalhost "${VM_NAME}" \
@@ -246,8 +234,7 @@ kubectl -n metal3-system label baremetalhost "${VM_NAME}" \
   --overwrite
 ```
 
-The UI path also does not expose `rootDeviceHints`, which this demo needs so
-Ironic writes the image to the virtio disk presented as `/dev/vda`:
+The UI path also does not expose `rootDeviceHints`, which this demo needs so Ironic writes the image to the virtio disk presented as `/dev/vda`:
 
 ```bash
 kubectl -n metal3-system patch baremetalhost "${VM_NAME}" --type merge -p \
@@ -273,12 +260,9 @@ Expected state flow:
 - `inspecting`
 - `available`
 
-In this environment, a few minutes in `inspecting` is expected. The repo's
-baseline demo notes that hosts can take around 5 minutes to reach `available`.
+In this environment, a few minutes in `inspecting` is expected. The repo's baseline demo notes that hosts can take around 5 minutes to reach `available`.
 
-If you already created the host with `inspect.metal3.io: disabled` and it is
-stuck in `preparing`, delete and recreate just the `BareMetalHost` without that
-annotation:
+If you already created the host with `inspect.metal3.io: disabled` and it is stuck in `preparing`, delete and recreate just the `BareMetalHost` without that annotation:
 
 ```bash
 kubectl patch bmh "${VM_NAME}" -n metal3-system \
@@ -298,10 +282,7 @@ kubectl logs -n metal3-system -l app=metal3 -c ironic --tail=50
 
 ## 7. Optional: demo firmware settings through Metal3
 
-Once the host is `available`, Metal3 should create a matching
-`HostFirmwareSettings` and `FirmwareSchema` resource for it. This is the cleanest
-moment to demonstrate firmware management because the host is not yet claimed by
-any workload.
+Once the host is `available`, Metal3 should create a matching `HostFirmwareSettings` and `FirmwareSchema` resource for it. This is the cleanest moment to demonstrate firmware management because the host is not yet claimed by any workload.
 
 Inspect the firmware resources:
 
@@ -310,11 +291,7 @@ kubectl get hostfirmwaresettings "${VM_NAME}" -n metal3-system -o yaml
 kubectl get firmwareschema schema-f229959d -n metal3-system -o yaml
 ```
 
-In this emulator-backed environment, `ProcTurboMode` is the most compelling
-CPU-adjacent writable setting for a live demo. It is not a GPU-specific BIOS
-option, but it demonstrates the same workflow you would use on real hardware for
-settings such as SR-IOV or other vendor-specific firmware knobs when the BMC
-exposes them.
+In this emulator-backed environment, `ProcTurboMode` is the most compelling CPU-adjacent writable setting for a live demo. It is not a GPU-specific BIOS option, but it demonstrates the same workflow you would use on real hardware for settings such as SR-IOV or other vendor-specific firmware knobs when the BMC exposes them.
 
 Recommended live demo change:
 
@@ -356,10 +333,7 @@ spec:
 '
 ```
 
-Use `QuietBoot` if you want a lower-risk firmware change that is less likely to
-interfere with boot behavior. Avoid using `BootMode` live unless you are
-comfortable risking a failed reprovisioning cycle, and avoid `NumCores` or
-`SecureBootStatus` because they are marked read-only in this schema.
+Use `QuietBoot` if you want a lower-risk firmware change that is less likely to interfere with boot behavior. Avoid using `BootMode` live unless you are comfortable risking a failed reprovisioning cycle, and avoid `NumCores` or `SecureBootStatus` because they are marked read-only in this schema.
 
 ## 8. Have vCluster Platform claim and provision it
 
@@ -368,7 +342,7 @@ Once the host is `available`, it is ready for any matching `NodeClaim`.
 In this repo:
 
 - `vmetal-rack: rack-a` and `vmetal-rack: rack-b` place hosts into the two
-  simulated racks
+simulated racks
 - `vmetal-size: small|medium|large` places hosts into the intended size class
 - the dedicated medium-capacity path is a good fit for a UEFI-focused demo host
 
@@ -377,8 +351,7 @@ The important behavior is:
 - adding the `BareMetalHost` makes the machine available to the pool
 - actual provisioning starts only when vCluster Platform needs a matching node
 
-For the most repeatable CLI demo, add the host first, wait for `available`, and
-then create or recreate a vCluster that can consume a medium-capacity host:
+For the most repeatable CLI demo, add the host first, wait for `available`, and then create or recreate a vCluster that can consume a medium-capacity host:
 
 ```bash
 kubectl apply -f manifests/platform/vmetal-static-template.yaml
@@ -421,27 +394,24 @@ Expected host state flow after claim:
 Note:
 
 - If other `available` hosts already match the same selector, vCluster Platform
-  may claim one of those instead of this new VM.
+may claim one of those instead of this new VM.
 - If you need this exact VM to be the one that gets claimed in a demo, make it
-  the only `available` host with that label set before recreating the vCluster.
+the only `available` host with that label set before recreating the vCluster.
 
 ## 9. Cleanup the VM and Kubernetes resources
 
-If this VM never moved past `available`, you can skip straight to deleting the
-`BareMetalHost`, Secret, and libvirt VM.
+If this VM never moved past `available`, you can skip straight to deleting the `BareMetalHost`, Secret, and libvirt VM.
 
 ### If the VM was claimed by a NodeClaim
 
-For the dedicated `medium` demo vCluster from the previous step, the cleanest
-repeatable reset is:
+For the dedicated `medium` demo vCluster from the previous step, the cleanest repeatable reset is:
 
 ```bash
 kubectl delete virtualclusterinstance static-medium-tenant -n p-default
 kubectl get nodeclaims -A -w
 ```
 
-Wait until the claim is gone and the host is no longer in use before deleting the
-`BareMetalHost`.
+Wait until the claim is gone and the host is no longer in use before deleting the `BareMetalHost`.
 
 ### Delete the Secret and BareMetalHost
 
@@ -475,9 +445,9 @@ test ! -f "${VM_DISK_PATH}" && echo "disk removed"
 ## Repeatability notes
 
 - Reuse the same `VM_NAME`, `VM_MAC`, and `VM_IP` each time if you want a stable
-  demo story.
+demo story.
 - Finish the cleanup before reusing the same name, MAC, or provisioning IP.
 - Do not add this VM to `configs/vm-inventory.txt` unless you later want
-  `hack/generate-bmh.sh` to manage it too.
+`hack/generate-bmh.sh` to manage it too.
 - If you want a full environment reset, use `docs/local-instructions.md` and
-  `scripts/reset-demo.sh`.
+`scripts/reset-demo.sh`.

@@ -175,9 +175,7 @@ If the files are missing, re-run `create-bridges.sh` — it is idempotent.
 failed to create listening socket for 172.22.0.1: Cannot assign requested address
 ```
 
-**Cause**: A carrier-less Linux bridge can come back as `UP` but remain
-unconfigured by `systemd-networkd`, so the static provisioning IP never gets
-re-applied.
+**Cause**: A carrier-less Linux bridge can come back as `UP` but remain unconfigured by `systemd-networkd`, so the static provisioning IP never gets re-applied.
 
 **Fix**:
 
@@ -194,9 +192,7 @@ bash scripts/create-bridges.sh
 sudo systemctl restart dnsmasq
 ```
 
-The current `create-bridges.sh` writes `ConfigureWithoutCarrier=yes` and
-`KeepConfiguration=static` to the bridge's `systemd-networkd` config so reruns
-repair this automatically.
+The current `create-bridges.sh` writes `ConfigureWithoutCarrier=yes` and `KeepConfiguration=static` to the bridge's `systemd-networkd` config so reruns repair this automatically.
 
 ---
 
@@ -252,8 +248,7 @@ fatal cannot log into a non https vcluster platform instance 'http://vcp.vdemo.l
 vcluster platform login https://vcp.vdemo.local --insecure
 ```
 
-If the rest of Platform is already healthy and you only need the HTTPS patch, apply just
-the Gateway resources:
+If the rest of Platform is already healthy and you only need the HTTPS patch, apply just the Gateway resources:
 
 ```bash
 source .env
@@ -296,13 +291,9 @@ lookup vcp.vdemo.local on 10.x.x.x:53: no such host
 failed to check derp connection
 ```
 
-**Cause**: The provisioned node is using a public DNS server that does not know
-the local demo zone (`*.vdemo.local`). DERP relays do not help here because the
-agent cannot reach the platform URL in the first place.
+**Cause**: The provisioned node is using a public DNS server that does not know the local demo zone (`*.vdemo.local`). DERP relays do not help here because the agent cannot reach the platform URL in the first place.
 
-**Fix**: Re-run `bash scripts/install-dnsmasq.sh` after the provisioning bridge
-exists so dnsmasq listens on `PROVISION_IP` (default `172.22.0.1`), then make
-sure generated BareMetalHosts use that resolver:
+**Fix**: Re-run `bash scripts/install-dnsmasq.sh` after the provisioning bridge exists so dnsmasq listens on `PROVISION_IP` (default `172.22.0.1`), then make sure generated BareMetalHosts use that resolver:
 
 ```bash
 dig +short vcp.vdemo.local @172.22.0.1
@@ -312,9 +303,7 @@ export PROVISION_DNS_SERVERS=172.22.0.1
 bash hack/generate-bmh.sh | kubectl apply -f -
 ```
 
-If `vcp.vdemo.local` resolves but public registries such as `ghcr.io` do not,
-the host's dnsmasq upstream resolvers are likely wrong for your LAN. Check the
-uplink DNS and pin it if needed:
+If `vcp.vdemo.local` resolves but public registries such as `ghcr.io` do not, the host's dnsmasq upstream resolvers are likely wrong for your LAN. Check the uplink DNS and pin it if needed:
 
 ```bash
 resolvectl dns <LAN_INTERFACE>
@@ -323,10 +312,7 @@ bash scripts/install-dnsmasq.sh
 dig +short ghcr.io @172.22.0.1
 ```
 
-If `vcp.vdemo.local` resolves but `resolvectl query ghcr.io` on the worker says
-`No appropriate name servers or networks for name found`, the worker's
-`systemd-resolved` link likely has a route-only `~vdemo.local` domain but is no
-longer marked as the default DNS route for public names. Restore both settings:
+If `vcp.vdemo.local` resolves but `resolvectl query ghcr.io` on the worker says `No appropriate name servers or networks for name found`, the worker's `systemd-resolved` link likely has a route-only `~vdemo.local` domain but is no longer marked as the default DNS route for public names. Restore both settings:
 
 ```bash
 iface=$(ip route show default 0.0.0.0/0 | awk 'NR==1 {print $5}')
@@ -335,8 +321,7 @@ sudo resolvectl default-route "${iface}" yes
 resolvectl query ghcr.io
 ```
 
-If the node was already provisioned with the wrong DNS settings, reprovision it
-so the updated annotation is applied to the installed OS.
+If the node was already provisioned with the wrong DNS settings, reprovision it so the updated annotation is applied to the installed OS.
 
 ---
 
@@ -462,15 +447,11 @@ plugin type="multus-shim" name="multus-cni-network" failed (add): CmdAdd (shim):
 ```
 
 - `crictl ps -a` shows repeated failures for the `install-multus-binary`
-  init container
+init container
 
-**Cause**: The thick Multus daemonset copies `multus-shim` and `passthru` onto
-the host at every startup. In this demo, the host already has working copies in
-`/opt/cni/bin`, and after an unclean reboot the init container can get stuck
-trying to overwrite them while the shim is already in use.
+**Cause**: The thick Multus daemonset copies `multus-shim` and `passthru` onto the host at every startup. In this demo, the host already has working copies in `/opt/cni/bin`, and after an unclean reboot the init container can get stuck trying to overwrite them while the shim is already in use.
 
-Upstream Multus supports disabling this copy path with
-`--skip-multus-binary-copy=true`.
+Upstream Multus supports disabling this copy path with `--skip-multus-binary-copy=true`.
 
 **Fix**:
 
@@ -482,8 +463,7 @@ kubectl delete pod -n metal3-system -l app=multus --force --grace-period=0
 kubectl get pods -n metal3-system -w
 ```
 
-If kubelet and containerd are already wedged from repeated sandbox failures,
-restart them before deleting the Multus pod:
+If kubelet and containerd are already wedged from repeated sandbox failures, restart them before deleting the Multus pod:
 
 ```bash
 sudo systemctl stop kubelet

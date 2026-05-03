@@ -1,15 +1,13 @@
 # Customer + Rack Auto Nodes
 
-This document explains how customer-aware and rack-aware capacity selection
-works in the demo once `BareMetalHosts` have been discovered from Redfish and
-labeled with topology metadata.
+This document explains how customer-aware and rack-aware capacity selection works in the demo once `BareMetalHosts` have been discovered from Redfish and labeled with topology metadata.
 
 Use this alongside [customer-rack-topology.md](./customer-rack-topology.md):
 
 - `customer-rack-topology.md` explains how inventory is built from Redfish and
-  mapped into `BareMetalHost` objects.
+mapped into `BareMetalHost` objects.
 - This document explains how `NodeProvider` node types and vCluster Auto Nodes
-  consume that topology information during worker provisioning.
+consume that topology information during worker provisioning.
 
 ## Mental model
 
@@ -17,17 +15,16 @@ There are three layers:
 
 1. `BareMetalHost` labels describe the discovered hardware inventory.
 2. `NodeProvider.nodeTypes` translate those labels into schedulable capacity
-   properties.
+properties.
 3. `privateNodes.autoNodes` selectors choose from that capacity using customer
-   and optional rack filters.
+and optional rack filters.
 
 The key split is:
 
 - `customer` is the assignment / allocation dimension
 - `rack` is the physical failure-domain dimension
 
-That lets a customer span multiple racks while still allowing you to narrow a
-node pool to one rack when you want a more explicit placement story.
+That lets a customer span multiple racks while still allowing you to narrow a node pool to one rack when you want a more explicit placement story.
 
 ## Inventory labels
 
@@ -50,8 +47,7 @@ Those labels are derived from:
 
 ## NodeProvider translation
 
-The topology-aware provider model exposes those dimensions as node type
-properties:
+The topology-aware provider model exposes those dimensions as node type properties:
 
 ```yaml
 properties:
@@ -79,7 +75,7 @@ The templates now support:
 - if `customerSelector` is set, only matching customers are eligible
 - if `rackSelector` is also set, the eligible set is reduced to those racks
 - size is not constrained in the dynamic template; Karpenter can still choose
-  larger matching node types if smaller ones are unavailable
+larger matching node types if smaller ones are unavailable
 
 Example:
 
@@ -113,8 +109,7 @@ That means:
 
 ### Static template
 
-`manifests/platform/vmetal-static-template.yaml` works similarly, but with
-fixed quantities per profile class:
+`manifests/platform/vmetal-static-template.yaml` works similarly, but with fixed quantities per profile class:
 
 ```yaml
 parameters: |
@@ -191,8 +186,7 @@ rackSelector: "rack-a"
 
 ### Multi-rack customer failover window
 
-Use when you want to show that the same customer allocation can span multiple
-racks while still being bounded:
+Use when you want to show that the same customer allocation can span multiple racks while still being bounded:
 
 ```yaml
 customerSelector: "customer-a"
@@ -207,7 +201,7 @@ Keeping `rackSelector` optional is intentional:
 - rack is a physical placement boundary
 - customers often span multiple racks
 - forcing rack selection all the time would make the common multi-rack case
-  awkward
+awkward
 
 So the natural model is:
 
@@ -216,9 +210,7 @@ So the natural model is:
 
 ## Operational note
 
-Do not put customer identity into the `BareMetalHost` name if you want rack
-handoff to stay a label/selector change. The object name should reflect stable
-physical identity, such as:
+Do not put customer identity into the `BareMetalHost` name if you want rack handoff to stay a label/selector change. The object name should reflect stable physical identity, such as:
 
 - `rack-a-u12-small`
 - `rack-a-u18-large`

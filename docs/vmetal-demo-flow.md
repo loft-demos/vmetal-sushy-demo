@@ -18,14 +18,14 @@ Lead with this:
 ### Show live
 
 - Platform-managed vMetal lifecycle: `NodeProvider` -> `OSImage` ->
-  `BareMetalHost` -> `NodeClaim` -> vCluster worker
+`BareMetalHost` -> `NodeClaim` -> vCluster worker
 - vMetal + vCluster integration for self-service private clusters
 - Cloud-init and image lifecycle knobs in `manifests/platform/node-provider.yaml`
-  and `manifests/platform/os-image.yaml`
+and `manifests/platform/os-image.yaml`
 - Day 2 operation: upgrade the vCluster control plane by changing a template
-  parameter
+parameter
 - CPU-only stand-in for a long-running quant/research workload using
-  [manifests/demo/quant-research-burst.yaml](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/manifests/demo/quant-research-burst.yaml)
+[manifests/demo/quant-research-burst.yaml](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/manifests/demo/quant-research-burst.yaml)
 
 ### Position carefully, do not overclaim
 
@@ -48,20 +48,18 @@ Map the story to pain directly:
 2. Day 2 lifecycle and fleet operations are now the bottleneck.
 3. Dedicated hardware for per-team control planes is expensive and unnecessary.
 4. GPUs are the scarce resource, but the operational pattern starts one layer
-   lower with machine allocation, images, and tenancy boundaries.
+lower with machine allocation, images, and tenancy boundaries.
 
 Then frame the demo:
 
 1. vCluster reduces the control-plane footprint for each team.
 2. vMetal makes machine provisioning and lifecycle a platform service.
 3. The combination gives self-service without forcing every team to inherit the
-   same Day 2 operational burden.
+same Day 2 operational burden.
 
 ## Environment Staging
 
-For a prospect demo, do not start from a blank Ubuntu host live. Pre-stage up
-through Platform installation and keep the "bootstrap" part as a short narrated
-walkthrough.
+For a prospect demo, do not start from a blank Ubuntu host live. Pre-stage up through Platform installation and keep the "bootstrap" part as a short narrated walkthrough.
 
 ### Pre-stage before the call
 
@@ -101,7 +99,7 @@ Have these ready before the meeting:
 
 - Platform UI reachable at `https://vcp.vdemo.local`
 - `metal3-provider` not yet applied, or applied and healthy depending on how
-  much waiting you want to do live
+much waiting you want to do live
 - `OSImage` manifests available locally
 - `configs/vm-inventory.txt` present
 - one extra unused VM available if you want to show "adding capacity"
@@ -122,7 +120,7 @@ Show:
 
 - the architecture section in [README.md](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/README.md)
 - the two template options in
-  [docs/design-notes.md](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/docs/design-notes.md)
+[docs/design-notes.md](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/docs/design-notes.md)
 
 ### 2. Narrate bootstrap briefly, do not dwell on it
 
@@ -165,10 +163,10 @@ kubectl get nodeprovider metal3-provider -w
 Talk track:
 
 - "This is the key Day 2 separation: the platform defines machine classes,
-  images, and bootstrap behavior once."
+images, and bootstrap behavior once."
 - "Teams consume templates; they don't each own their own Metal3/Ironic stack."
 - "That is where dedicated control-plane hardware starts to become unnecessary:
-  the tenant control plane is lightweight, and the machine lifecycle is shared."
+the tenant control plane is lightweight, and the machine lifecycle is shared."
 
 Open:
 
@@ -194,8 +192,7 @@ Talk track:
 
 - "At this point we have machine inventory managed independent of any one team."
 - "This is the point in the flow that matters for Slurm or Condor too: the
-  platform knows what hardware exists, what image it should receive, and how it
-  should be provisioned."
+platform knows what hardware exists, what image it should receive, and how it should be provisioned."
 
 Important honesty point:
 
@@ -233,9 +230,9 @@ kubectl get nodeclaims -A -w
 Recommended angle:
 
 - Use the static template first because it looks more like reserved
-  per-team capacity.
+per-team capacity.
 - Then explain that dynamic mode is the path when they want to reclaim more
-  shared utilization over time.
+shared utilization over time.
 
 ### 6. Show a research workload without GPUs
 
@@ -258,7 +255,7 @@ If you need a stronger angle on over-requesting:
 
 - say that the large-capacity rack pools are a stand-in for a scarce accelerator class
 - explain that the same self-service boundary and machine lifecycle apply even
-  when the scarce dimension is GPUs instead of CPUs
+when the scarce dimension is GPUs instead of CPUs
 
 ### 7. Show Day 2 operations explicitly
 
@@ -274,8 +271,7 @@ kubectl apply -f manifests/platform/vcluster-vmetal.yaml
 kubectl get virtualclusterinstances -n p-default -w
 ```
 
-Use the actual file change live if you want the audience to see how little
-manual work is involved:
+Use the actual file change live if you want the audience to see how little manual work is involved:
 
 - [manifests/platform/vcluster-vmetal.yaml](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/manifests/platform/vcluster-vmetal.yaml)
 - [manifests/platform/vcluster-vmetal-static.yaml](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/manifests/platform/vcluster-vmetal-static.yaml)
@@ -283,14 +279,13 @@ manual work is involved:
 Talk track:
 
 - "The team control plane is upgraded through a parameter change, not a bespoke
-  runbook."
+runbook."
 - "The machine lifecycle remains separately governed by the provider."
 - "This is the Day 2 operational simplification we wanted to make tangible."
 
 ### 8. Close on non-Kubernetes provisioning and future scheduler alignment
 
-Use the manual-add guide as the proof that machines can be brought under
-management before they are consumed by any one cluster:
+Use the manual-add guide as the proof that machines can be brought under management before they are consumed by any one cluster:
 
 - [docs/manual-add-baremetal-vm.md](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/docs/manual-add-baremetal-vm.md)
 
@@ -363,5 +358,4 @@ Compress to this sequence:
 4. Launch the CPU-only research workload
 5. Change Kubernetes version to show Day 2 operations
 
-That keeps the story tight around actual pain: lifecycle, tenancy, and
-hardware utilization pressure.
+That keeps the story tight around actual pain: lifecycle, tenancy, and hardware utilization pressure.

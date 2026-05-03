@@ -1,7 +1,6 @@
 # Host Reboot Recovery
 
-Short runbook for the most common "host rebooted and `https://vcp.vdemo.local`
-is gone" failure chain on the MINISFORUM demo host.
+Short runbook for the most common "host rebooted and `https://vcp.vdemo.local` is gone" failure chain on the MINISFORUM demo host.
 
 Use this in order. Each step narrows the next one.
 
@@ -61,7 +60,7 @@ curl -k -I https://192.168.50.200
 Interpretation:
 
 - If this returns HTTP headers, Platform ingress is up and only hostname
-  resolution is left to fix on the client.
+resolution is left to fix on the client.
 - If this fails to connect, continue with the cluster checks below.
 
 ---
@@ -86,8 +85,7 @@ Healthy state:
 - `endpoints/traefik` is not empty
 - the `loft` pod is `Running`
 
-If old pods are stuck in `Unknown`, force-delete them after the underlying CNI
-problem is fixed:
+If old pods are stuck in `Unknown`, force-delete them after the underlying CNI problem is fixed:
 
 ```bash
 kubectl delete pod -n traefik -l app.kubernetes.io/name=traefik --force --grace-period=0
@@ -113,8 +111,7 @@ sudo ls -1 /opt/cni/bin
 sudo ls -1 /etc/cni/net.d
 ```
 
-If `/opt/cni/bin` is missing or does not contain `static`, reinstall the CNI
-plugin bundle:
+If `/opt/cni/bin` is missing or does not contain `static`, reinstall the CNI plugin bundle:
 
 ```bash
 CNI_PLUGINS_VERSION=v1.4.0
@@ -123,9 +120,7 @@ curl -fsSL "https://github.com/containernetworking/plugins/releases/download/${C
   | sudo tar xz -C /opt/cni/bin
 ```
 
-If `kube-multus-ds-*` is stuck in `Init:Error` even though `multus-shim` and
-`passthru` already exist on the host, patch the init container to skip the copy
-when the host binaries are already installed:
+If `kube-multus-ds-*` is stuck in `Init:Error` even though `multus-shim` and `passthru` already exist on the host, patch the init container to skip the copy when the host binaries are already installed:
 
 ```bash
 kubectl patch ds kube-multus-ds -n metal3-system --type='json' \

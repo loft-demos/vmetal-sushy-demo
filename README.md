@@ -128,10 +128,7 @@ ping -c 3 8.8.8.8   # should succeed (confirms NAT is working from provisioning 
 
 ### 3. Create the demo VMs
 
-Creates 4 small VMs, 2 medium VMs, and 2 large VMs by default. All are
-attached to `br-provision` and spread across two simulated racks. The medium
-profile remains the dedicated UEFI demo lane, while the stock small and large
-pools stay on the current BIOS-style boot flow. Writes `configs/vm-inventory.txt`.
+Creates 4 small VMs, 2 medium VMs, and 2 large VMs by default. All are attached to `br-provision` and spread across two simulated racks. The medium profile remains the dedicated UEFI demo lane, while the stock small and large pools stay on the current BIOS-style boot flow. Writes `configs/vm-inventory.txt`.
 
 ```bash
 bash scripts/create-vms.sh
@@ -144,8 +141,7 @@ sudo virsh list --all
 cat configs/vm-inventory.txt
 ```
 
-Adjust `MEDIUM_VM_COUNT` or `RACK_NAMES` in `.env` if you want a different
-inventory mix, then re-run `bash scripts/create-vms.sh`.
+Adjust `MEDIUM_VM_COUNT` or `RACK_NAMES` in `.env` if you want a different inventory mix, then re-run `bash scripts/create-vms.sh`.
 
 ### 4. Start Sushy Tools
 
@@ -172,10 +168,7 @@ curl http://172.22.0.1:8000/redfish/v1/Systems/ | jq .
 > `VCP_LOFT_HOST` in `.env` before running.
 > See [free vs enterprise](https://www.vcluster.com/docs/platform/free-vs-enterprise).
 
-**vCluster Platform requires a resolvable FQDN** — bare IPs cause cookie and OAuth
-redirect failures. This demo uses a wildcard DNS approach so that every service
-(`vcp.vdemo.local`, `argocd.vdemo.local`, ...) resolves automatically with no
-per-entry `/etc/hosts` maintenance.
+**vCluster Platform requires a resolvable FQDN** — bare IPs cause cookie and OAuth redirect failures. This demo uses a wildcard DNS approach so that every service (`vcp.vdemo.local`, `argocd.vdemo.local`, ...) resolves automatically with no per-entry `/etc/hosts` maintenance.
 
 **How it works:**
 
@@ -193,13 +186,7 @@ Mac browser → *.vdemo.local → dnsmasq on MINISFORUM → GATEWAY_IP
 bash scripts/install-dnsmasq.sh
 ```
 
-This configures dnsmasq to resolve `*.vdemo.local → GATEWAY_IP` and binds it to the
-management NIC and, when `br-provision` exists, the provisioning bridge as well.
-That lets both your Mac and provisioned Private Nodes resolve `*.vdemo.local`
-through the same host-side resolver. By default, the script forwards public
-lookups to the DNS servers currently configured on `LAN_INTERFACE`; set
-`UPSTREAM_DNS_SERVERS` in `.env` if you need to pin a specific resolver such as
-your router.
+This configures dnsmasq to resolve `*.vdemo.local → GATEWAY_IP` and binds it to the management NIC and, when `br-provision` exists, the provisioning bridge as well. That lets both your Mac and provisioned Private Nodes resolve `*.vdemo.local` through the same host-side resolver. By default, the script forwards public lookups to the DNS servers currently configured on `LAN_INTERFACE`; set `UPSTREAM_DNS_SERVERS` in `.env` if you need to pin a specific resolver such as your router.
 
 **Step 5b — Configure DNS on your Mac** (one-time setup):
 
@@ -208,8 +195,7 @@ your router.
 bash hack/setup-mac-dns.sh lan
 ```
 
-This creates `/etc/resolver/vdemo.local` pointing at the MINISFORUM's LAN IP.
-All `*.vdemo.local` hostnames resolve immediately — no `/etc/hosts` entries needed.
+This creates `/etc/resolver/vdemo.local` pointing at the MINISFORUM's LAN IP. All `*.vdemo.local` hostnames resolve immediately — no `/etc/hosts` entries needed.
 
 If you also use this demo over Tailscale, the same helper can switch modes cleanly:
 
@@ -226,10 +212,7 @@ bash hack/setup-mac-dns.sh status
 bash hack/setup-mac-dns.sh off
 ```
 
-Optional: set `TAILSCALE_DNS_IP` in `.env` on your Mac copy of the repo so you can run
-`bash hack/setup-mac-dns.sh tailscale` without passing the IP each time. If your
-Tailscale DNS path returns a different service IP than local `GATEWAY_IP`, also set
-`TAILSCALE_EXPECTED_IP` for stricter verification.
+Optional: set `TAILSCALE_DNS_IP` in `.env` on your Mac copy of the repo so you can run `bash hack/setup-mac-dns.sh tailscale` without passing the IP each time. If your Tailscale DNS path returns a different service IP than local `GATEWAY_IP`, also set `TAILSCALE_EXPECTED_IP` for stricter verification.
 
 **Step 5c — Install vCluster Standalone + Platform:**
 
@@ -244,7 +227,7 @@ The install script:
 3. Applies MetalLB `IPAddressPool` + `L2Advertisement` so the Gateway gets `GATEWAY_IP`
 4. Uses cert-manager to issue a self-signed wildcard certificate for `*.vdemo.local`
 5. Applies `GatewayClass`, `Gateway` (HTTP redirect + HTTPS wildcard listeners), and
-   `HTTPRoute` resources for vCluster Platform
+`HTTPRoute` resources for vCluster Platform
 6. Waits for the Gateway to receive its external IP from MetalLB
 
 Watch the Platform pods come up:
@@ -254,16 +237,13 @@ export KUBECONFIG=/var/lib/vcluster/kubeconfig.yaml
 kubectl -n vcluster-platform get pods -w
 ```
 
-Access the Platform UI at `https://vcp.vdemo.local` from your Mac once the pods are
-ready. The demo certificate is self-signed, so your browser will warn until you trust it
-locally. The CLI works with:
+Access the Platform UI at `https://vcp.vdemo.local` from your Mac once the pods are ready. The demo certificate is self-signed, so your browser will warn until you trust it locally. The CLI works with:
 
 ```bash
 vcluster platform login https://vcp.vdemo.local --insecure
 ```
 
-If Platform is already installed and healthy, you can patch just the HTTPS pieces instead
-of re-running the full installer:
+If Platform is already installed and healthy, you can patch just the HTTPS pieces instead of re-running the full installer:
 
 ```bash
 source .env
@@ -284,9 +264,7 @@ do
 done
 ```
 
-To add another service later (Argo CD, Grafana, etc.), create an `HTTPRoute` in its
-namespace that attaches to the Gateway's `https` listener — the shared HTTP listener
-already redirects to HTTPS.
+To add another service later (Argo CD, Grafana, etc.), create an `HTTPRoute` in its namespace that attaches to the Gateway's `https` listener — the shared HTTP listener already redirects to HTTPS.
 
 > **Note:** vCluster Platform automatically connects the cluster it runs on as `loft-cluster`. No manual cluster import is needed. The NodeProvider and VirtualClusterInstance manifests already reference `loft-cluster`.
 
@@ -312,11 +290,7 @@ Generate and apply the BareMetalHost and Secret manifests from the VM inventory:
 bash hack/generate-bmh.sh | kubectl apply -f -
 ```
 
-This creates one `BareMetalHost` and one BMC credentials `Secret` in `metal3-system` for each VM.
-By default, the generated `BareMetalHost` annotations point DNS at `PROVISION_IP`
-(`172.22.0.1` by default), so provisioned nodes can resolve `vcp.vdemo.local`
-through the host's dnsmasq. Override with `PROVISION_DNS_SERVERS` if you need a
-different resolver list.
+This creates one `BareMetalHost` and one BMC credentials `Secret` in `metal3-system` for each VM. By default, the generated `BareMetalHost` annotations point DNS at `PROVISION_IP` (`172.22.0.1` by default), so provisioned nodes can resolve `vcp.vdemo.local` through the host's dnsmasq. Override with `PROVISION_DNS_SERVERS` if you need a different resolver list.
 
 Monitor the servers progressing through the bare-metal lifecycle:
 
@@ -333,9 +307,7 @@ The IPA ramdisk running inside provisioning VMs has no DNS or internet access �
 bash scripts/cache-os-image.sh
 ```
 
-By default this downloads Ubuntu 24.04 minimal (~500 MB) to `/srv/os-images/`,
-starts an `os-image-server` systemd service on `http://172.22.0.1:9000/`, and
-generates `manifests/platform/os-images/ubuntu-noble.yaml`.
+By default this downloads Ubuntu 24.04 minimal (~500 MB) to `/srv/os-images/`, starts an `os-image-server` systemd service on `http://172.22.0.1:9000/`, and generates `manifests/platform/os-images/ubuntu-noble.yaml`.
 
 Why keep the minimal image as the default:
 - It provisions faster and pulls less over the local bridge.
@@ -403,7 +375,7 @@ kubectl apply -f manifests/platform/vcluster-vmetal-static.yaml
 
 The dynamic demo uses `vmetal-template` and starts at Kubernetes v1.34.7. It can scale against the rack-aware Metal3 inventory up to the configured `cpuLimit`. BareMetalHosts are explicitly classified with `vmetal-size`, but the dynamic pool does not constrain size, so it can fall back to larger nodes within the selected rack set when smaller ones are unavailable. Use `customerSelector` to scope capacity to one or more customers and optionally add `rackSelector` to narrow that eligible set to one or more racks.
 
-The static demo uses `vmetal-static-template` and exposes a quantity parameter for each capacity class (`small`, `medium`, `large`). Each pool can consume matching nodes from any rack owned by the selected customer set by default, and `rackSelector` lets you further constrain the whole worker set to one rack or a comma-separated rack list when you want to mimic specific failure domains. Keep the requested quantities aligned with the available BareMetalHosts in your local inventory.
+The static demo uses `vmetal-static-template` and exposes a quantity parameter for each capacity class (`small`, `medium`, `large`). Each pool can consume matching nodes from any rack assigned to the selected customer set by default, and `rackSelector` lets you further constrain the whole worker set to one rack or a comma-separated rack list when you want to mimic specific failure domains. Keep the requested quantities aligned with the available BareMetalHosts in your local inventory.
 
 For the customer/rack selection model and provisioning flow, see [docs/customer-rack-auto-nodes.md](docs/customer-rack-auto-nodes.md).
 
@@ -417,9 +389,7 @@ kubectl -n metal3-system get baremetalhost -w
 
 Once provisioned, the node joins and system pods start running. The full cycle takes about a minute.
 
-If you cached a non-default image, apply its generated manifest from
-`manifests/platform/os-images/` and point the top-level `properties` block in
-`manifests/platform/node-provider.yaml` at that OSImage name:
+If you cached a non-default image, apply its generated manifest from `manifests/platform/os-images/` and point the top-level `properties` block in `manifests/platform/node-provider.yaml` at that OSImage name:
 
 ```yaml
 properties:
@@ -521,9 +491,7 @@ For best disk performance, set `VM_IMAGE_DIR` to a path on one of the 2 TB NVMe 
 
 ## Troubleshooting
 
-See [docs/troubleshooting.md](docs/troubleshooting.md) for a full list, and
-[docs/reboot-recovery.md](docs/reboot-recovery.md) for the host-restart path.
-Quick checks:
+See [docs/troubleshooting.md](docs/troubleshooting.md) for a full list, and [docs/reboot-recovery.md](docs/reboot-recovery.md) for the host-restart path. Quick checks:
 
 ### KVM or libvirt permission issues
 

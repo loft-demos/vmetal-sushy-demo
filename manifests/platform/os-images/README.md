@@ -48,19 +48,13 @@ bash scripts/build-custom-os-image.sh \
 kubectl apply -f manifests/platform/os-images/ubuntu-noble-slurm-compute.yaml
 ```
 
-To use a different image for new machines, update the top-level `properties`
-block in `manifests/platform/node-provider.yaml`:
+To use a different image for new machines, update the top-level `properties` block in `manifests/platform/node-provider.yaml`:
 
 ```yaml
 properties:
   vcluster.com/os-image: ubuntu-noble-server
 ```
 
-That `NodeProvider` mapping is the Kubernetes-worker path in this repo. For
-images like `ubuntu-noble-slurm-compute`, it is also fine to stop at creating
-and showing the `OSImage` itself when the goal is to represent a non-Kubernetes
-compute persona rather than a vCluster worker node.
+That `NodeProvider` mapping is the Kubernetes-worker path in this repo. For images like `ubuntu-noble-slurm-compute`, it is also fine to stop at creating and showing the `OSImage` itself when the goal is to represent a non-Kubernetes compute persona rather than a vCluster worker node.
 
-For the worker-node path, `ubuntu-noble-bootstrap` is the image intended to
-replace the current cloud-init package installs (`ca-certificates`, `curl`,
-`htop`) in `manifests/platform/node-provider.yaml`.
+For the worker-node path, `ubuntu-noble-bootstrap` is the image intended to replace the current cloud-init package installs (`ca-certificates`, `curl`, `htop`) in `manifests/platform/node-provider.yaml`.

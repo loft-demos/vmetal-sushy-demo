@@ -2,8 +2,7 @@
 
 Machine-specific cheat sheet for a full tear-down and re-run. For full context see README.md.
 
-If the host was rebooted and the demo does not come back cleanly, use
-`docs/reboot-recovery.md` before doing a full reinstall.
+If the host was rebooted and the demo does not come back cleanly, use `docs/reboot-recovery.md` before doing a full reinstall.
 
 ## Kernel requirement
 
@@ -126,9 +125,7 @@ bash scripts/create-vms.sh
 
 `create-bridges.sh` creates `br-provision` at `172.22.0.1/24` with STP disabled and sets up NAT masquerade via `enp197s0` so provisioning VMs can reach the internet.
 
-By default this creates the stock 3 small + 2 large BIOS-style demo nodes. If
-you want one dedicated UEFI-backed demo node, set `MEDIUM_VM_COUNT=1` in `.env`
-before running `create-vms.sh`; the medium profile defaults to UEFI firmware.
+By default this creates the stock 3 small + 2 large BIOS-style demo nodes. If you want one dedicated UEFI-backed demo node, set `MEDIUM_VM_COUNT=1` in `.env` before running `create-vms.sh`; the medium profile defaults to UEFI firmware.
 
 Verify:
 
@@ -164,8 +161,7 @@ On the MINISFORUM:
 bash scripts/install-dnsmasq.sh
 ```
 
-This also makes the host answer `*.vdemo.local` on the provisioning bridge
-(`172.22.0.1` by default) so Private Nodes can resolve `vcp.vdemo.local`.
+This also makes the host answer `*.vdemo.local` on the provisioning bridge (`172.22.0.1` by default) so Private Nodes can resolve `vcp.vdemo.local`.
 
 On your Mac:
 
@@ -210,8 +206,7 @@ export KUBECONFIG=/var/lib/vcluster/kubeconfig.yaml
 kubectl -n vcluster-platform get pods -w
 ```
 
-Once all pods are `Running`, open **https://vcp.vdemo.local** from your Mac and log in.
-The demo cert is self-signed, so your browser will warn until you trust it locally.
+Once all pods are `Running`, open **https://vcp.vdemo.local** from your Mac and log in. The demo cert is self-signed, so your browser will warn until you trust it locally.
 
 For the CLI, use:
 
@@ -219,8 +214,7 @@ For the CLI, use:
 vcluster platform login https://vcp.vdemo.local --insecure
 ```
 
-If vCluster Standalone and Platform were already installed before the HTTPS change, patch
-the existing setup in place instead of reinstalling:
+If vCluster Standalone and Platform were already installed before the HTTPS change, patch the existing setup in place instead of reinstalling:
 
 ```bash
 source .env
@@ -274,9 +268,7 @@ kubectl get pods -n metal3-system
 bash hack/generate-bmh.sh | kubectl apply -f -
 ```
 
-Creates one `BareMetalHost` + BMC credentials `Secret` per VM. Watch them progress:
-The generated annotations use `PROVISION_IP` as the DNS server by default so
-provisioned nodes can resolve the local vCP hostname.
+Creates one `BareMetalHost` + BMC credentials `Secret` per VM. Watch them progress: The generated annotations use `PROVISION_IP` as the DNS server by default so provisioned nodes can resolve the local vCP hostname.
 
 ```bash
 kubectl -n metal3-system get baremetalhost -w
@@ -294,9 +286,7 @@ The IPA ramdisk has no internet access — serve the image locally for ~40s prov
 bash scripts/cache-os-image.sh
 ```
 
-Downloads Ubuntu 24.04 minimal to `/srv/os-images/`, starts the `os-image-server`
-systemd service on `http://172.22.0.1:9000/`, and generates
-`manifests/platform/os-images/ubuntu-noble.yaml`.
+Downloads Ubuntu 24.04 minimal to `/srv/os-images/`, starts the `os-image-server` systemd service on `http://172.22.0.1:9000/`, and generates `manifests/platform/os-images/ubuntu-noble.yaml`.
 
 Alternative images are supported too:
 
@@ -351,13 +341,9 @@ kubectl apply -f manifests/platform/vmetal-static-template.yaml
 kubectl apply -f manifests/platform/vcluster-vmetal-static.yaml
 ```
 
-If you cached a non-default image, apply its generated manifest from
-`manifests/platform/os-images/` and update the relevant node type in
-`manifests/platform/node-provider.yaml` to use that OSImage name.
+If you cached a non-default image, apply its generated manifest from `manifests/platform/os-images/` and update the relevant node type in `manifests/platform/node-provider.yaml` to use that OSImage name.
 
-To target specific racks, edit the instance manifest and set
-`rackSelector: "rack-a"` or `rackSelector: "rack-a,rack-b"` in the `parameters`
-block before applying it. The default is empty, which means all racks.
+To target specific racks, edit the instance manifest and set `rackSelector: "rack-a"` or `rackSelector: "rack-a,rack-b"` in the `parameters` block before applying it. The default is empty, which means all racks.
 
 Watch the provisioning pipeline:
 
