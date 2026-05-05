@@ -67,14 +67,7 @@ cp configs/rack-assignments.csv.example configs/rack-assignments.csv
 bash hack/discover-redfish-inventory.sh
 ```
 
-3. Generate and apply `BareMetalHosts` using one shared BMC Secret:
-
-```bash
-BMC_SHARED_SECRET_NAME=redfish-shared-creds \
-  bash hack/generate-bmh.sh | kubectl apply -f -
-```
-
-4. Render the data-center scoped `NodeProvider`:
+3. Render the data-center scoped `NodeProvider`:
 
 ```bash
 python3 hack/generate-node-provider-pools.py \
@@ -83,10 +76,21 @@ python3 hack/generate-node-provider-pools.py \
   --output manifests/platform/node-provider-customer-topology.yaml
 ```
 
-5. Apply the generated provider:
+4. Apply the generated provider and wait for Metal3 to be ready:
 
 ```bash
 kubectl apply -f manifests/platform/node-provider-customer-topology.yaml
+kubectl get nodeprovider us-va-blacksburg-dc1 -w
+```
+
+On a fresh cluster, do this before creating any `BareMetalHost` resources so
+the Metal3 CRDs and controllers exist in `metal3-system`.
+
+5. Generate and apply `BareMetalHosts` using one shared BMC Secret:
+
+```bash
+BMC_SHARED_SECRET_NAME=redfish-shared-creds \
+  bash hack/generate-bmh.sh | kubectl apply -f -
 ```
 
 What this demonstrates:
