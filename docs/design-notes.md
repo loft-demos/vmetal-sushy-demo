@@ -147,11 +147,11 @@ Rough resource allocation for the default configuration:
 | vCluster Standalone | 1–2 | ~2–4 GB |
 | Metal3 / Ironic / DHCP (platform-managed) | 2–4 | ~4–6 GB |
 | 4x small VMs (2 vCPU each) | 8 | 16 GB |
-| 2x medium VMs (3 vCPU each) | 6 | 12 GB |
+| 1x medium VM (3 vCPU each) | 3 | 6 GB |
 | 2x large VMs (4 vCPU each) | 8 | 16 GB |
-| **Total** | **~26–30 vCPU** | **~52–56 GB** |
+| **Total** | **~23–27 vCPU** | **~46–50 GB** |
 
-This slightly overcommits CPU on a 24-thread host but stays workable for a local demo because the guests are mostly idle outside provisioning bursts. RAM headroom is tighter than the earlier five-VM layout, so this profile is best on a 64 GB host with swap disabled or kept minimal to avoid latency spikes.
+This stays close to the edge of CPU overcommit on a 24-thread host but remains workable for a local demo because the guests are mostly idle outside provisioning bursts. RAM headroom is still tighter than the earlier five-VM layout, so this profile is best on a 64 GB host with swap disabled or kept minimal to avoid latency spikes.
 
 Note: vCPU overcommit (assigning more vCPUs than physical threads) is fine for idle VMs, but keeping total vCPU allocation under the physical thread count avoids scheduler contention during provisioning when all VMs are active simultaneously.
 
@@ -164,7 +164,7 @@ Note: vCPU overcommit (assigning more vCPUs than physical threads) is fine for i
 ### Medium VMs (vmetal-medium-N)
 - 3 vCPU / 6 GB RAM / 60 GB disk
 - Represent balanced worker nodes and the default UEFI demo lane
-- Distributed evenly across `rack-a` and `rack-b`
+- Default count is one UEFI-backed lane; set `MEDIUM_VM_COUNT=2` if you want symmetric rack coverage
 - Suitable for showing the medium size class explicitly
 
 ### Large VMs (vmetal-large-N)

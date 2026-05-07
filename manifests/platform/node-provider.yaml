@@ -26,6 +26,11 @@ spec:
   properties:
     vcluster.com/os-image: ubuntu-noble-bootstrap
     vcluster.com/ssh-keys: admin-macbook
+    # The stock demo keeps bootstrap behavior inline so the repo is runnable
+    # end-to-end with no extra secrets. For a stronger operator story, see
+    # docs/network-data-template-demo.md and swap this to
+    # vcluster.com/user-data-template-secret plus, when supported by your
+    # vMetal build, a network-data-template-based flow.
     vcluster.com/user-data: |
       #cloud-config
       # This provider uses the pre-baked ubuntu-noble-bootstrap image, so

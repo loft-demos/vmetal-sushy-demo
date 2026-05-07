@@ -24,6 +24,11 @@ spec:
   properties:
     vcluster.com/os-image: ubuntu-noble-bootstrap
     vcluster.com/ssh-keys: admin-macbook
+    # The stock demo keeps bootstrap behavior inline so the repo is runnable
+    # end-to-end with no extra secrets. For a stronger operator story, see
+    # docs/network-data-template-demo.md and swap this to
+    # vcluster.com/user-data-template-secret plus, when supported by your
+    # vMetal build, a network-data-template-based flow.
     vcluster.com/user-data: |
       #cloud-config
       write_files:
@@ -118,13 +123,31 @@ spec:
           memory: 4Gi
         bareMetalHosts:
           selector:
-            matchLabels:
-              demo: vmetal
-              topology.vcluster.com/az: us-va-blacksburg-dc1
-              topology.vcluster.com/row: row-1
-              topology.vcluster.com/rack: rack-a
-              inventory.vcluster.com/size: small
-              inventory.vcluster.com/accelerator: cpu-only
+            matchExpressions:
+              - key: demo
+                operator: In
+                values:
+                  - vmetal
+              - key: topology.vcluster.com/az
+                operator: In
+                values:
+                  - us-va-blacksburg-dc1
+              - key: topology.vcluster.com/row
+                operator: In
+                values:
+                  - row-1
+              - key: topology.vcluster.com/rack
+                operator: In
+                values:
+                  - rack-a
+              - key: inventory.vcluster.com/size
+                operator: In
+                values:
+                  - small
+              - key: inventory.vcluster.com/accelerator
+                operator: In
+                values:
+                  - cpu-only
         properties:
           vcluster.com/customer: customer-a
           vcluster.com/az: us-va-blacksburg-dc1
@@ -141,13 +164,31 @@ spec:
           memory: 6Gi
         bareMetalHosts:
           selector:
-            matchLabels:
-              demo: vmetal
-              topology.vcluster.com/az: us-va-blacksburg-dc1
-              topology.vcluster.com/row: row-1
-              topology.vcluster.com/rack: rack-a
-              inventory.vcluster.com/size: medium
-              inventory.vcluster.com/accelerator: cpu-only
+            matchExpressions:
+              - key: demo
+                operator: In
+                values:
+                  - vmetal
+              - key: topology.vcluster.com/az
+                operator: In
+                values:
+                  - us-va-blacksburg-dc1
+              - key: topology.vcluster.com/row
+                operator: In
+                values:
+                  - row-1
+              - key: topology.vcluster.com/rack
+                operator: In
+                values:
+                  - rack-a
+              - key: inventory.vcluster.com/size
+                operator: In
+                values:
+                  - medium
+              - key: inventory.vcluster.com/accelerator
+                operator: In
+                values:
+                  - cpu-only
         properties:
           vcluster.com/customer: customer-a
           vcluster.com/az: us-va-blacksburg-dc1
@@ -164,13 +205,31 @@ spec:
           memory: 8Gi
         bareMetalHosts:
           selector:
-            matchLabels:
-              demo: vmetal
-              topology.vcluster.com/az: us-va-blacksburg-dc1
-              topology.vcluster.com/row: row-1
-              topology.vcluster.com/rack: rack-a
-              inventory.vcluster.com/size: large
-              inventory.vcluster.com/accelerator: h100
+            matchExpressions:
+              - key: demo
+                operator: In
+                values:
+                  - vmetal
+              - key: topology.vcluster.com/az
+                operator: In
+                values:
+                  - us-va-blacksburg-dc1
+              - key: topology.vcluster.com/row
+                operator: In
+                values:
+                  - row-1
+              - key: topology.vcluster.com/rack
+                operator: In
+                values:
+                  - rack-a
+              - key: inventory.vcluster.com/size
+                operator: In
+                values:
+                  - large
+              - key: inventory.vcluster.com/accelerator
+                operator: In
+                values:
+                  - h100
         properties:
           vcluster.com/customer: customer-a
           vcluster.com/az: us-va-blacksburg-dc1
@@ -187,13 +246,31 @@ spec:
           memory: 4Gi
         bareMetalHosts:
           selector:
-            matchLabels:
-              demo: vmetal
-              topology.vcluster.com/az: us-va-blacksburg-dc1
-              topology.vcluster.com/row: row-1
-              topology.vcluster.com/rack: rack-b
-              inventory.vcluster.com/size: small
-              inventory.vcluster.com/accelerator: cpu-only
+            matchExpressions:
+              - key: demo
+                operator: In
+                values:
+                  - vmetal
+              - key: topology.vcluster.com/az
+                operator: In
+                values:
+                  - us-va-blacksburg-dc1
+              - key: topology.vcluster.com/row
+                operator: In
+                values:
+                  - row-1
+              - key: topology.vcluster.com/rack
+                operator: In
+                values:
+                  - rack-b
+              - key: inventory.vcluster.com/size
+                operator: In
+                values:
+                  - small
+              - key: inventory.vcluster.com/accelerator
+                operator: In
+                values:
+                  - cpu-only
         properties:
           vcluster.com/customer: customer-b
           vcluster.com/az: us-va-blacksburg-dc1
@@ -210,13 +287,31 @@ spec:
           memory: 6Gi
         bareMetalHosts:
           selector:
-            matchLabels:
-              demo: vmetal
-              topology.vcluster.com/az: us-va-blacksburg-dc1
-              topology.vcluster.com/row: row-1
-              topology.vcluster.com/rack: rack-b
-              inventory.vcluster.com/size: medium
-              inventory.vcluster.com/accelerator: cpu-only
+            matchExpressions:
+              - key: demo
+                operator: In
+                values:
+                  - vmetal
+              - key: topology.vcluster.com/az
+                operator: In
+                values:
+                  - us-va-blacksburg-dc1
+              - key: topology.vcluster.com/row
+                operator: In
+                values:
+                  - row-1
+              - key: topology.vcluster.com/rack
+                operator: In
+                values:
+                  - rack-b
+              - key: inventory.vcluster.com/size
+                operator: In
+                values:
+                  - medium
+              - key: inventory.vcluster.com/accelerator
+                operator: In
+                values:
+                  - cpu-only
         properties:
           vcluster.com/customer: customer-b
           vcluster.com/az: us-va-blacksburg-dc1
@@ -233,13 +328,31 @@ spec:
           memory: 8Gi
         bareMetalHosts:
           selector:
-            matchLabels:
-              demo: vmetal
-              topology.vcluster.com/az: us-va-blacksburg-dc1
-              topology.vcluster.com/row: row-1
-              topology.vcluster.com/rack: rack-b
-              inventory.vcluster.com/size: large
-              inventory.vcluster.com/accelerator: h100
+            matchExpressions:
+              - key: demo
+                operator: In
+                values:
+                  - vmetal
+              - key: topology.vcluster.com/az
+                operator: In
+                values:
+                  - us-va-blacksburg-dc1
+              - key: topology.vcluster.com/row
+                operator: In
+                values:
+                  - row-1
+              - key: topology.vcluster.com/rack
+                operator: In
+                values:
+                  - rack-b
+              - key: inventory.vcluster.com/size
+                operator: In
+                values:
+                  - large
+              - key: inventory.vcluster.com/accelerator
+                operator: In
+                values:
+                  - h100
         properties:
           vcluster.com/customer: customer-b
           vcluster.com/az: us-va-blacksburg-dc1

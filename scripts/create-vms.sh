@@ -3,7 +3,7 @@
 #
 # Creates three profiles of VMs:
 #   small   — lightweight worker nodes (default: 4x, 2 vCPU, 4 GB RAM, 40 GB disk, BIOS)
-#   medium  — balanced worker nodes (default: 2x, 3 vCPU, 6 GB RAM, 60 GB disk, UEFI)
+#   medium  — balanced worker nodes (default: 1x, 3 vCPU, 6 GB RAM, 60 GB disk, UEFI)
 #   large   — compute-heavy demo nodes (default: 2x, 4 vCPU, 8 GB RAM, 80 GB disk, BIOS)
 #
 # All VMs are attached to the provisioning bridge ($PROVISION_BRIDGE) and

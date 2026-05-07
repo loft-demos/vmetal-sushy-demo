@@ -18,7 +18,7 @@ Lead with this:
 ### Show live
 
 - Platform-managed vMetal lifecycle: `NodeProvider` -> `OSImage` ->
-`BareMetalHost` -> `NodeClaim` -> vCluster worker
+`BareMetalHost` -> `NodeClaim` -> vCluster worker node
 - vMetal + vCluster integration for self-service private clusters
 - Cloud-init and image lifecycle knobs in `manifests/platform/node-provider.yaml`
 and `manifests/platform/os-image.yaml`
@@ -46,7 +46,7 @@ Map the story to pain directly:
 
 1. They already solved Day 0 reasonably well.
 2. Day 2 lifecycle and fleet operations are now the bottleneck.
-3. Dedicated hardware for per-team control planes is expensive and unnecessary.
+3. Dedicated hardware for per-tenant control planes is expensive and unnecessary.
 4. GPUs are the scarce resource, but the operational pattern starts one layer
 lower with machine allocation, images, and tenancy boundaries.
 
@@ -176,6 +176,10 @@ Open:
 Call out specifically:
 
 - `vcluster.com/user-data` for cloud-init style customization
+- reusable bootstrap templating via `vcluster.com/user-data-template` /
+  `vcluster.com/user-data-template-secret`
+- the optional `network-data-template` demo lane in
+  [network-data-template-demo.md](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/docs/network-data-template-demo.md)
 - provider-level image selection through `vcluster.com/os-image`
 - rack-aware node classes spanning `small`, `medium`, and `large` capacities
 

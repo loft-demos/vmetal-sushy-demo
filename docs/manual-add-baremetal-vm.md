@@ -49,13 +49,14 @@ curl http://172.22.0.1:8000/redfish/v1/Systems/ | jq .
 Example below: add one dedicated `medium` machine to the rack-aware inventory. In this repo, `medium` is also the cleanest place to demonstrate UEFI-backed virtual bare metal without changing the default small/large flows.
 
 ```bash
-export VM_NAME=vmetal-medium-1
+export VM_NAME=rack-b-u16-medium
 export VM_PROFILE=medium
 export VM_RACK=rack-b
+export VM_ROW=1
 export VM_VCPUS=3
 export VM_RAM_MB=6144
 export VM_DISK_GB=60
-export VM_MAC=52:54:00:dd:00:00
+export VM_MAC=52:54:00:dd:00:01
 export VM_IP=172.22.0.19
 
 export VM_IMAGE_DIR=/var/lib/libvirt/images
@@ -223,10 +224,40 @@ EOF
   - Address: redfish+http://172.22.0.1:8000/redfish/v1/Systems/2b034cba-c55c-4a41-b60b-3662644c53c1
   - Username: admin
   - Password: password
-- Boot MAC Address: 52:54:00:dd:00:00
+- Boot MAC Address: 52:54:00:dd:00:01
 - IP: 172.22.0.19/24
 - Gateway: 172.22.0.1
 - DNS Servers: 172.22.0.1
+
+rack-b-u16-medium BMH manifest:
+
+```yaml
+apiVersion: metal3.io/v1alpha1
+kind: BareMetalHost
+metadata:
+  name: rack-b-u16-medium
+  namespace: metal3-system
+  labels:
+    demo: vmetal
+    topology.vcluster.com/az: us-va-blacksburg-dc1
+    topology.vcluster.com/row: row-1
+    topology.vcluster.com/rack: rack-b
+    inventory.vcluster.com/size: medium
+    inventory.vcluster.com/accelerator: cpu-only
+  annotations:
+    metal3.vcluster.com/ip-address: "172.22.0.19/24"
+    metal3.vcluster.com/gateway: "172.22.0.1"
+    metal3.vcluster.com/dns-servers: "172.22.0.1"
+spec:
+  online: true
+  automatedCleaningMode: metadata
+  bmc:
+    address: redfish+http://172.22.0.1:8000/redfish/v1/Systems/86c8430c-44c0-4a41-a183-6a588db76896
+    disableCertificateVerification: true
+  bootMACAddress: "52:54:00:dd:00:01"
+  rootDeviceHints:
+    deviceName: /dev/vda
+```
 
 After creating the BareMetalHost in the UI, add the rack labels manually. The UI does not currently expose arbitrary BareMetalHost labels, but the `NodeProvider` selectors require them for capacity matching:
 

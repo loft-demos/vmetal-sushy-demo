@@ -11,7 +11,7 @@
 rack-a-u12-small 41c60678-de8d-4be7-b90c-b2ba270e8312 52:54:00:aa:00:00 small bios rack-a customer-a redfish+http://172.22.0.1:8000/redfish/v1/Systems/41c60678-de8d-4be7-b90c-b2ba270e8312
 rack-b-u12-small 696dd221-b831-40c7-9743-bb074c15de4d 52:54:00:aa:00:01 small bios rack-b customer-b redfish+http://172.22.0.1:8000/redfish/v1/Systems/696dd221-b831-40c7-9743-bb074c15de4d
 rack-a-u14-small d8e8ded3-ed46-4cfb-bd64-45efb196917f 52:54:00:aa:00:02 small bios rack-a customer-a redfish+http://172.22.0.1:8000/redfish/v1/Systems/d8e8ded3-ed46-4cfb-bd64-45efb196917f
+rack-b-u14-small ff409f39-f2b9-493f-a51f-2a21524b545b 52:54:00:aa:00:03 small bios rack-b customer-b redfish+http://172.22.0.1:8000/redfish/v1/Systems/ff409f39-f2b9-493f-a51f-2a21524b545b
 rack-a-u16-medium 18a24b28-35cf-47c6-8b39-9ea863a00b06 52:54:00:dd:00:00 medium uefi rack-a customer-a redfish+http://172.22.0.1:8000/redfish/v1/Systems/18a24b28-35cf-47c6-8b39-9ea863a00b06
 rack-a-u18-large 5cd56578-d0a9-40ea-986d-5bd8c1596477 52:54:00:bb:00:00 large bios rack-a customer-a redfish+http://172.22.0.1:8000/redfish/v1/Systems/5cd56578-d0a9-40ea-986d-5bd8c1596477
-rack-b-u14-medium ff409f39-f2b9-493f-a51f-2a21524b545b 52:54:00:dd:00:01 medium uefi rack-b customer-b redfish+http://172.22.0.1:8000/redfish/v1/Systems/ff409f39-f2b9-493f-a51f-2a21524b545b
 rack-b-u16-large ab4dc290-5cba-439c-8700-560dc3528c26 52:54:00:bb:00:01 large bios rack-b customer-b redfish+http://172.22.0.1:8000/redfish/v1/Systems/ab4dc290-5cba-439c-8700-560dc3528c26

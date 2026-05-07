@@ -125,13 +125,13 @@ bash scripts/create-vms.sh
 
 `create-bridges.sh` creates `br-provision` at `172.22.0.1/24` with STP disabled and sets up NAT masquerade via `enp197s0` so provisioning VMs can reach the internet.
 
-By default this creates the stock 3 small + 2 large BIOS-style demo nodes. If you want one dedicated UEFI-backed demo node, set `MEDIUM_VM_COUNT=1` in `.env` before running `create-vms.sh`; the medium profile defaults to UEFI firmware.
+By default this creates 4 small + 1 medium + 2 large demo nodes. The medium profile defaults to UEFI firmware, so you get one dedicated firmware-demo lane out of the box.
 
 Verify:
 
 ```bash
 ip addr show br-provision        # should show 172.22.0.1/24
-sudo virsh list --all            # 5 VMs, all shut off
+sudo virsh list --all            # 7 VMs, all shut off
 cat configs/vm-inventory.txt     # UUID, MAC, profile, firmware for each VM
 ```
 

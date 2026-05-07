@@ -161,13 +161,31 @@ def render_node_type(rack: RackTopology, customer: str, size: SizeProfile) -> st
           memory: {size.memory}
         bareMetalHosts:
           selector:
-            matchLabels:
-              demo: vmetal
-              topology.vcluster.com/az: {rack.az}
-              topology.vcluster.com/row: {rack.row}
-              topology.vcluster.com/rack: {rack.rack}
-              inventory.vcluster.com/size: {size.name}
-              inventory.vcluster.com/accelerator: {size.accelerator}
+            matchExpressions:
+              - key: demo
+                operator: In
+                values:
+                  - vmetal
+              - key: topology.vcluster.com/az
+                operator: In
+                values:
+                  - {rack.az}
+              - key: topology.vcluster.com/row
+                operator: In
+                values:
+                  - {rack.row}
+              - key: topology.vcluster.com/rack
+                operator: In
+                values:
+                  - {rack.rack}
+              - key: inventory.vcluster.com/size
+                operator: In
+                values:
+                  - {size.name}
+              - key: inventory.vcluster.com/accelerator
+                operator: In
+                values:
+                  - {size.accelerator}
         properties:
           vcluster.com/customer: {customer}
           vcluster.com/az: {rack.az}
@@ -214,6 +232,11 @@ spec:
   properties:
     vcluster.com/os-image: ubuntu-noble-bootstrap
     vcluster.com/ssh-keys: admin-macbook
+    # The stock demo keeps bootstrap behavior inline so the repo is runnable
+    # end-to-end with no extra secrets. For a stronger operator story, see
+    # docs/network-data-template-demo.md and swap this to
+    # vcluster.com/user-data-template-secret plus, when supported by your
+    # vMetal build, a network-data-template-based flow.
     vcluster.com/user-data: |
 {indent(USER_DATA, 6)}
 
