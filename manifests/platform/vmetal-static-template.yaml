@@ -63,14 +63,10 @@ spec:
                         {{- end }}
                         {{- end }}
                     {{- end }}
-                    - property: vcluster.com/cpu
+                    - property: vcluster.com/profile
                       operator: In
                       values:
-                        - "2"
-                    - property: vcluster.com/memory
-                      operator: In
-                      values:
-                        - 4Gi
+                        - small
                     {{- if and .Values.rackSelector (ne (trim .Values.rackSelector) "") (ne (trim .Values.rackSelector) "all") }}
                     - property: vcluster.com/rack
                       operator: In
@@ -98,14 +94,10 @@ spec:
                         {{- end }}
                         {{- end }}
                     {{- end }}
-                    - property: vcluster.com/cpu
+                    - property: vcluster.com/profile
                       operator: In
                       values:
-                        - "3"
-                    - property: vcluster.com/memory
-                      operator: In
-                      values:
-                        - 6Gi
+                        - medium
                     {{- if and .Values.rackSelector (ne (trim .Values.rackSelector) "") (ne (trim .Values.rackSelector) "all") }}
                     - property: vcluster.com/rack
                       operator: In
@@ -133,14 +125,10 @@ spec:
                         {{- end }}
                         {{- end }}
                     {{- end }}
-                    - property: vcluster.com/cpu
+                    - property: vcluster.com/profile
                       operator: In
                       values:
-                        - "4"
-                    - property: vcluster.com/memory
-                      operator: In
-                      values:
-                        - 8Gi
+                        - large
                     {{- if and .Values.rackSelector (ne (trim .Values.rackSelector) "") (ne (trim .Values.rackSelector) "all") }}
                     - property: vcluster.com/rack
                       operator: In
