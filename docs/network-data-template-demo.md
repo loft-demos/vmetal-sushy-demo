@@ -65,14 +65,14 @@ properties:
 
 You can see that in:
 
-- [manifests/platform/node-provider.yaml](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/vcluster-local/vmetal-sushy-demo/manifests/platform/node-provider.yaml)
-- [manifests/platform/node-provider-customer-topology.yaml](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/vcluster-local/vmetal-sushy-demo/manifests/platform/node-provider-customer-topology.yaml)
+- [manifests/platform/node-provider.yaml](../manifests/platform/node-provider.yaml)
+- [manifests/platform/node-provider-customer-topology.yaml](../manifests/platform/node-provider-customer-topology.yaml)
 
 ## Network template Secret
 
 This repo’s working template lives at:
 
-- [manifests/platform/network-data-template-secret.yaml](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/vcluster-local/vmetal-sushy-demo/manifests/platform/network-data-template-secret.yaml)
+- [manifests/platform/network-data-template-secret.yaml](../manifests/platform/network-data-template-secret.yaml)
 
 The important parts are:
 

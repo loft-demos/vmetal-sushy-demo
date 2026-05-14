@@ -25,7 +25,7 @@ and `manifests/platform/os-image.yaml`
 - Day 2 operation: upgrade the vCluster control plane by changing a template
 parameter
 - CPU-only stand-in for a long-running quant/research workload using
-[manifests/demo/quant-research-burst.yaml](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/manifests/demo/quant-research-burst.yaml)
+[manifests/demo/quant-research-burst.yaml](../manifests/demo/quant-research-burst.yaml)
 
 ### Position carefully, do not overclaim
 
@@ -118,9 +118,9 @@ Say:
 
 Show:
 
-- the architecture section in [README.md](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/README.md)
+- the architecture section in [README.md](../README.md)
 - the two template options in
-[docs/design-notes.md](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/docs/design-notes.md)
+[docs/design-notes.md](design-notes.md)
 
 ### 2. Narrate bootstrap briefly, do not dwell on it
 
@@ -170,8 +170,8 @@ the tenant control plane is lightweight, and the machine lifecycle is shared."
 
 Open:
 
-- [manifests/platform/node-provider.yaml](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/manifests/platform/node-provider.yaml)
-- [manifests/platform/os-image.yaml](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/manifests/platform/os-image.yaml)
+- [manifests/platform/node-provider.yaml](../manifests/platform/node-provider.yaml)
+- [manifests/platform/os-image.yaml](../manifests/platform/os-image.yaml)
 
 Call out specifically:
 
@@ -179,7 +179,7 @@ Call out specifically:
 - reusable bootstrap templating via `vcluster.com/user-data-template` /
   `vcluster.com/user-data-template-secret`
 - the optional `network-data-template` demo lane in
-  [network-data-template-demo.md](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/docs/network-data-template-demo.md)
+  [network-data-template-demo.md](network-data-template-demo.md)
 - provider-level image selection through `vcluster.com/os-image`
 - rack-aware node classes spanning `small`, `medium`, and `large` capacities
 
@@ -277,8 +277,8 @@ kubectl get virtualclusterinstances -n p-default -w
 
 Use the actual file change live if you want the audience to see how little manual work is involved:
 
-- [manifests/platform/vcluster-vmetal.yaml](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/manifests/platform/vcluster-vmetal.yaml)
-- [manifests/platform/vcluster-vmetal-static.yaml](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/manifests/platform/vcluster-vmetal-static.yaml)
+- [manifests/platform/vcluster-vmetal.yaml](../manifests/platform/vcluster-vmetal.yaml)
+- [manifests/platform/vcluster-vmetal-static.yaml](../manifests/platform/vcluster-vmetal-static.yaml)
 
 Talk track:
 
@@ -291,7 +291,7 @@ runbook."
 
 Use the manual-add guide as the proof that machines can be brought under management before they are consumed by any one cluster:
 
-- [docs/manual-add-baremetal-vm.md](/Users/kmadel/Library/Mobile%20Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/docs/manual-add-baremetal-vm.md)
+- [docs/manual-add-baremetal-vm.md](manual-add-baremetal-vm.md)
 
 Say:
 
