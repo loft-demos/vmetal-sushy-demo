@@ -247,9 +247,11 @@ The public vCluster Platform docs clearly document:
 - `vcluster.com/user-data-template-secret`
 - the required Secret label `vcluster.com/user-data-template-type`
 
-This repo also demonstrates that a `network-data` template Secret works with:
+This repo uses the reusable `Network Data` template flow exposed in the
+Platform UI under Bare Metal Servers -> User Data Templates. In manifest form,
+that means:
 
 - `vcluster.com/network-data-template-secret`
 
-That exact property is part of the working demo contract here, even if it is
-less prominently documented publicly than inline `metal3.vcluster.com/network-data`.
+This demo references the template by its namespaced Secret name and uses it to
+select the post-provisioning LAN NIC for the installed node OS.
