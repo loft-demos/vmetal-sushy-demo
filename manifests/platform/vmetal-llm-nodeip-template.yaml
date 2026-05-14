@@ -1,0 +1,309 @@
+# vmetal-llm-nodeip-template.yaml — standalone vCluster + private-node LLM demo
+#
+# This template is aimed at the quickest "tiny CPU-only inference demo" path:
+# - the vCluster control plane runs as a standalone vCluster backed by one
+#   small vMetal node
+# - the workload lands on one large private node provisioned through vMetal
+# - the in-cluster Service is exposed as NodePort 32080
+# - users open the chat UI directly via the private node LAN IP:
+#     http://<private-node-lan-ip>:32080/
+#
+# This is intentionally the quick-and-dirty access path. It avoids Tailscale,
+# MetalLB, Gateway, and HTTPRoute wiring so the demo can focus on the private
+# node provisioning flow first.
+#
+# Apply with:
+#   kubectl apply -f manifests/platform/vmetal-llm-nodeip-template.yaml
+#
+# Then create a VirtualClusterInstance from this template and point its
+# `clusterRef.cluster` at the connected cluster where the standalone vCluster
+# control plane should run.
+#
+# References:
+#   https://www.vcluster.com/docs/platform/api/resources/virtualclustertemplate
+
+apiVersion: management.loft.sh/v1
+kind: VirtualClusterTemplate
+metadata:
+  name: vmetal-llm-nodeip-template
+spec:
+  displayName: "vMetal - Tiny LLM on Private Nodes (NodeIP)"
+  description: >
+    Private Node vCluster backed by vMetal-provisioned bare metal, preloaded with
+    a tiny CPU-only llama.cpp chat demo. The in-cluster Service is exposed as a
+    fixed NodePort so the demo can be reached directly through the provisioned
+    private node's LAN IP.
+
+  owner:
+    team: loft-admins
+
+  template:
+    metadata:
+      labels:
+        demo.vcluster.com/type: tiny-llm
+        demo.vcluster.com/access: nodeip
+    instanceTemplate:
+      metadata:
+        labels:
+          demo.vcluster.com/type: tiny-llm
+          demo.vcluster.com/access: nodeip
+    helmRelease:
+      chart:
+        version: 0.34.0
+      values: |
+        controlPlane:
+          backingStore:
+            etcd:
+              embedded:
+                enabled: true
+          distro:
+            k8s:
+              image:
+                tag: "{{ .Values.kubernetesVersion }}"
+        privateNodes:
+          enabled: true
+          vpn:
+            enabled: true
+          autoNodes:
+            - provider: us-va-blacksburg-dc1
+              static:
+                - name: tiny-llm-large-nodes
+                  quantity: {{ .Values.largeNodeCount }}
+                  nodeTypeSelector:
+                    {{- if and .Values.customerSelector (ne (trim .Values.customerSelector) "") (ne (trim .Values.customerSelector) "all") }}
+                    - property: vcluster.com/customer
+                      operator: In
+                      values:
+                        {{- range $customer := splitList "," .Values.customerSelector }}
+                        {{- $trimmedCustomer := trim $customer }}
+                        {{- if ne $trimmedCustomer "" }}
+                        - {{ $trimmedCustomer }}
+                        {{- end }}
+                        {{- end }}
+                    {{- end }}
+                    - property: vcluster.com/profile
+                      operator: In
+                      values:
+                        - large
+                    {{- if and .Values.rackSelector (ne (trim .Values.rackSelector) "") (ne (trim .Values.rackSelector) "all") }}
+                    - property: vcluster.com/rack
+                      operator: In
+                      values:
+                        {{- range $rack := splitList "," .Values.rackSelector }}
+                        {{- $trimmedRack := trim $rack }}
+                        {{- if ne $trimmedRack "" }}
+                        - {{ $trimmedRack }}
+                        {{- end }}
+                        {{- end }}
+                    {{- end }}
+        networking:
+          podCIDR: 10.64.0.0/16
+          serviceCIDR: 10.128.0.0/16
+    objects: |
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: tiny-llm-cpu-demo
+        namespace: default
+      spec:
+        type: NodePort
+        selector:
+          app: tiny-llm-cpu-demo
+        ports:
+          - name: http
+            port: 8080
+            targetPort: http
+            nodePort: {{ .Values.serviceNodePort }}
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: tiny-llm-cpu-demo
+        namespace: default
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: tiny-llm-cpu-demo
+        template:
+          metadata:
+            labels:
+              app: tiny-llm-cpu-demo
+          spec:
+            terminationGracePeriodSeconds: 20
+            containers:
+              - name: server
+                image: ghcr.io/ggml-org/llama.cpp:server
+                imagePullPolicy: IfNotPresent
+                args:
+                  - -hf
+                  - "{{ .Values.modelRef }}"
+                  - --host
+                  - 0.0.0.0
+                  - --port
+                  - "8080"
+                  - -c
+                  - "{{ .Values.contextSize }}"
+                  - -np
+                  - "1"
+                  - -t
+                  - "{{ .Values.cpuThreads }}"
+                  - -tb
+                  - "{{ .Values.cpuThreads }}"
+                env:
+                  - name: HUGGINGFACE_HUB_CACHE
+                    value: /models-cache/hub
+                ports:
+                  - name: http
+                    containerPort: 8080
+                resources:
+                  requests:
+                    cpu: "{{ .Values.llmCpuRequest }}"
+                    memory: "{{ .Values.llmMemoryRequest }}"
+                  limits:
+                    cpu: "{{ .Values.llmCpuLimit }}"
+                    memory: "{{ .Values.llmMemoryLimit }}"
+                startupProbe:
+                  httpGet:
+                    path: /health
+                    port: http
+                  periodSeconds: 10
+                  timeoutSeconds: 3
+                  failureThreshold: 90
+                readinessProbe:
+                  httpGet:
+                    path: /health
+                    port: http
+                  periodSeconds: 5
+                  timeoutSeconds: 3
+                  failureThreshold: 6
+                livenessProbe:
+                  httpGet:
+                    path: /health
+                    port: http
+                  periodSeconds: 20
+                  timeoutSeconds: 3
+                  failureThreshold: 3
+                volumeMounts:
+                  - name: model-cache
+                    mountPath: /models-cache
+            volumes:
+              - name: model-cache
+                emptyDir:
+                  sizeLimit: "{{ .Values.modelCacheSize }}"
+    accessPoint:
+      ingress: {}
+    spaceTemplate:
+      metadata: {}
+
+  parameters:
+    - variable: kubernetesVersion
+      label: Kubernetes Version
+      description: >
+        Control plane Kubernetes version for the standalone vCluster.
+      defaultValue: v1.34.7
+      options:
+        - v1.33.11
+        - v1.34.7
+        - v1.35.4
+
+    - variable: largeNodeCount
+      label: Large Node Count
+      description: >
+        Number of large private nodes reserved for the LLM workload.
+      defaultValue: "1"
+      options:
+        - "1"
+        - "2"
+
+    - variable: customerSelector
+      label: Customer Selector
+      description: >
+        Optional comma-separated customer list such as `customer-a` or
+        `customer-a,customer-b`. Leave empty to allow all customers.
+      defaultValue: ""
+
+    - variable: rackSelector
+      label: Rack Selector
+      description: >
+        Optional comma-separated rack list such as `rack-a` or
+        `rack-a,rack-b`. Leave empty to allow all racks.
+      defaultValue: ""
+
+    - variable: serviceNodePort
+      label: Service NodePort
+      description: >
+        Fixed NodePort used to reach the llama.cpp UI and API through the
+        provisioned private node LAN IP.
+      defaultValue: "32080"
+      options:
+        - "32080"
+        - "32081"
+        - "32082"
+
+    - variable: modelRef
+      label: Model Ref
+      description: >
+        Hugging Face GGUF reference passed to llama.cpp with `-hf`.
+      defaultValue: ggml-org/gemma-3-1b-it-GGUF:Q4_K_M
+
+    - variable: contextSize
+      label: Context Size
+      description: >
+        Token context window passed to llama.cpp.
+      defaultValue: "1024"
+      options:
+        - "1024"
+        - "2048"
+
+    - variable: cpuThreads
+      label: CPU Threads
+      description: >
+        llama.cpp worker thread count. Keep this aligned with the large node
+        CPU budget.
+      defaultValue: "4"
+      options:
+        - "2"
+        - "4"
+
+    - variable: llmCpuRequest
+      label: LLM CPU Request
+      defaultValue: "3500m"
+      options:
+        - "2500m"
+        - "3000m"
+        - "3500m"
+
+    - variable: llmCpuLimit
+      label: LLM CPU Limit
+      defaultValue: "3500m"
+      options:
+        - "2500m"
+        - "3000m"
+        - "3500m"
+
+    - variable: llmMemoryRequest
+      label: LLM Memory Request
+      defaultValue: 6Gi
+      options:
+        - 5Gi
+        - 5500Mi
+        - 6Gi
+
+    - variable: llmMemoryLimit
+      label: LLM Memory Limit
+      defaultValue: 6Gi
+      options:
+        - 5Gi
+        - 5500Mi
+        - 6Gi
+
+    - variable: modelCacheSize
+      label: Model Cache Size
+      description: >
+        emptyDir size limit for the Hugging Face cache inside the vCluster.
+      defaultValue: 4Gi
+      options:
+        - 2Gi
+        - 4Gi
+        - 6Gi

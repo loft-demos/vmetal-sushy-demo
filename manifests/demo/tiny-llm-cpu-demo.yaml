@@ -1,0 +1,134 @@
+# tiny-llm-cpu-demo.yaml — CPU-only LLM demo sized for one "large" vMetal node
+#
+# This workload is designed for the repo's 4 vCPU / 8 GiB "large" node class.
+# It uses llama.cpp's OpenAI-compatible HTTP server and pulls a small quantized
+# GGUF model from Hugging Face on first start.
+#
+# Why these settings fit this demo:
+# - requests 3500m CPU, so it naturally lands on the 4 vCPU "large" node
+# - requests 6 GiB memory, leaving some room for the OS and system pods
+# - uses a 1B instruct model with Q4 quantization, which is realistic on CPU
+#
+# Apply with:
+#   kubectl apply -f manifests/demo/tiny-llm-cpu-demo.yaml
+#
+# Watch startup:
+#   kubectl get pods -w
+#
+# Access locally:
+#   kubectl port-forward service/tiny-llm-cpu-demo 8080:8080
+#
+# Open the built-in web UI:
+#   http://127.0.0.1:8080/
+#
+# Example request:
+#   curl http://127.0.0.1:8080/v1/chat/completions \
+#     -H 'Content-Type: application/json' \
+#     -d '{
+#       "model": "ggml-org/gemma-3-1b-it-GGUF:Q4_K_M",
+#       "messages": [
+#         {"role": "system", "content": "Be concise."},
+#         {"role": "user", "content": "Explain why this demo uses a large node in two sentences."}
+#       ],
+#       "max_tokens": 96
+#     }'
+#
+# Notes:
+# - First start can take a few minutes while the model downloads and loads.
+# - The cache is stored in an emptyDir, so it is lost if the pod is deleted.
+#
+# Reference:
+#   https://github.com/ggml-org/llama.cpp/blob/master/README.md
+#   https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: tiny-llm-cpu-demo
+  namespace: default
+spec:
+  type: NodePort
+  selector:
+    app: tiny-llm-cpu-demo
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      nodePort: 32080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tiny-llm-cpu-demo
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tiny-llm-cpu-demo
+  template:
+    metadata:
+      labels:
+        app: tiny-llm-cpu-demo
+    spec:
+      terminationGracePeriodSeconds: 20
+      containers:
+        - name: server
+          image: ghcr.io/ggml-org/llama.cpp:server
+          imagePullPolicy: IfNotPresent
+          args:
+            - -hf
+            - ggml-org/gemma-3-1b-it-GGUF:Q4_K_M
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8080"
+            - -c
+            - "1024"
+            - -np
+            - "1"
+            - -t
+            - "4"
+            - -tb
+            - "4"
+          env:
+            - name: HUGGINGFACE_HUB_CACHE
+              value: /models-cache/hub
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: "3500m"
+              memory: 6Gi
+            limits:
+              cpu: "3500m"
+              memory: 6Gi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 90
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models-cache
+      volumes:
+        - name: model-cache
+          emptyDir:
+            sizeLimit: 4Gi

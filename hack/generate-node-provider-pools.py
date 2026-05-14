@@ -15,63 +15,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-USER_DATA = """#cloud-config
-write_files:
-  - path: /etc/vcluster-common
-    permissions: "0644"
-    content: |
-      common config
-  - path: /usr/local/bin/configure-vdemo-node-bootstrap
-    permissions: "0755"
-    content: |
-      #!/bin/sh
-      set -eu
-
-      iface="$(ip route show default 0.0.0.0/0 | awk 'NR==1 {print $5}')"
-      [ -n "${iface}" ] || exit 1
-
-      resolvectl domain "${iface}" '~vdemo.local'
-      resolvectl default-route "${iface}" yes
-
-      cert_tmp="$(mktemp)"
-      tries=0
-      while true; do
-        if curl -fsSL "http://172.22.0.1:9000/vdemo-platform.crt" -o "${cert_tmp}"; then
-          break
-        fi
-        tries=$((tries + 1))
-        if [ "${tries}" -ge 20 ]; then
-          echo "failed to download platform certificate after ${tries} attempts" >&2
-          exit 1
-        fi
-        sleep 3
-      done
-
-      install -D -m 0644 "${cert_tmp}" /usr/local/share/ca-certificates/vdemo-platform.crt
-      rm -f "${cert_tmp}"
-      update-ca-certificates
-      systemctl try-restart vcluster || true
-  - path: /etc/systemd/system/vdemo-resolved-domain.service
-    permissions: "0644"
-    content: |
-      [Unit]
-      Description=Configure vdemo.local DNS routing and trust the platform certificate
-      Wants=network-online.target
-      After=network-online.target systemd-resolved.service
-
-      [Service]
-      Type=oneshot
-      ExecStart=/usr/local/bin/configure-vdemo-node-bootstrap
-      RemainAfterExit=yes
-
-      [Install]
-      WantedBy=multi-user.target
-runcmd:
-  - systemctl daemon-reload
-  - systemctl enable --now vdemo-resolved-domain.service
-"""
-
-
 @dataclass(frozen=True)
 class RackTopology:
     rack: str
@@ -101,6 +44,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", required=True)
     parser.add_argument("--provider-name", default="us-va-blacksburg-dc1")
     parser.add_argument("--display-name", default="vMetal Demo - Metal3 Provider (us-va-blacksburg-dc1)")
+    parser.add_argument("--cluster-name", default="vmetal-cluster")
+    parser.add_argument("--cluster-namespace", default="metal3-system")
+    parser.add_argument("--ssh-key-ref", default="admin-bastion-host")
+    parser.add_argument("--network-data-template-secret", default="vcluster-platform/vmetal-dual-nic-network-template")
     return parser.parse_args()
 
 
@@ -145,11 +92,6 @@ def read_rack_assignments(path: Path) -> dict[str, str]:
     for row in reader:
         assignments[row["rack"].strip()] = row["customer"].strip()
     return assignments
-
-
-def indent(text: str, spaces: int) -> str:
-    prefix = " " * spaces
-    return "\n".join(f"{prefix}{line}" if line else prefix.rstrip() for line in text.splitlines())
 
 
 def render_node_type(rack: RackTopology, customer: str, size: SizeProfile) -> str:
@@ -198,7 +140,16 @@ def render_node_type(rack: RackTopology, customer: str, size: SizeProfile) -> st
 """
 
 
-def render_provider(provider_name: str, display_name: str, racks: list[RackTopology], assignments: dict[str, str]) -> str:
+def render_provider(
+    provider_name: str,
+    display_name: str,
+    cluster_name: str,
+    cluster_namespace: str,
+    ssh_key_ref: str,
+    network_data_template_secret: str,
+    racks: list[RackTopology],
+    assignments: dict[str, str],
+) -> str:
     node_types = "\n".join(
         render_node_type(rack, assignments.get(rack.rack, "unassigned"), size)
         for rack in racks
@@ -231,19 +182,16 @@ spec:
 
   properties:
     vcluster.com/os-image: ubuntu-noble-bootstrap
-    vcluster.com/ssh-keys: admin-macbook
-    # The stock demo keeps bootstrap behavior inline so the repo is runnable
-    # end-to-end with no extra secrets. For a stronger operator story, see
-    # docs/network-data-template-demo.md and swap this to
-    # vcluster.com/user-data-template-secret plus, when supported by your
-    # vMetal build, a network-data-template-based flow.
-    vcluster.com/user-data: |
-{indent(USER_DATA, 6)}
+    vcluster.com/ssh-keys: {ssh_key_ref}
+    # The namespaced network-data template secret configures only the LAN NIC
+    # in the installed node OS. Provisioning traffic stays on br-provision and
+    # the running node is managed on its LAN IP.
+    vcluster.com/network-data-template-secret: {network_data_template_secret}
 
   metal3:
     clusterRef:
-      cluster: loft-cluster
-      namespace: metal3-system
+      cluster: {cluster_name}
+      namespace: {cluster_namespace}
 
     deploy:
       multus:
@@ -283,7 +231,16 @@ def main() -> int:
     if not rack_topology:
         raise SystemExit("No rack topology rows were found")
 
-    output = render_provider(args.provider_name, args.display_name, rack_topology, assignments)
+    output = render_provider(
+        args.provider_name,
+        args.display_name,
+        args.cluster_name,
+        args.cluster_namespace,
+        args.ssh_key_ref,
+        args.network_data_template_secret,
+        rack_topology,
+        assignments,
+    )
     Path(args.output).write_text(output + "\n", encoding="utf-8")
     return 0
 

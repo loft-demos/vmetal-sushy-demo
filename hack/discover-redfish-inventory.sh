@@ -46,6 +46,7 @@ REDFISH_BASE_URL="${REDFISH_BASE_URL:-http://${PROVISION_IP}:${SUSHY_PORT}/redfi
 REDFISH_USERNAME="${REDFISH_USERNAME:-${BMC_USERNAME}}"
 REDFISH_PASSWORD="${REDFISH_PASSWORD:-${BMC_PASSWORD}}"
 RACK_ASSIGNMENT_FILE="${RACK_ASSIGNMENT_FILE:-${REPO_ROOT}/configs/rack-assignments.csv}"
+REDFISH_TOPOLOGY_FILE="${REDFISH_TOPOLOGY_FILE:-${REPO_ROOT}/configs/redfish-topology.json}"
 INVENTORY_FILE="${INVENTORY_FILE:-${REPO_ROOT}/configs/vm-inventory.txt}"
 DEFAULT_PROFILE="${DEFAULT_PROFILE:-large}"
 DEFAULT_FIRMWARE="${DEFAULT_FIRMWARE:-uefi}"
@@ -174,6 +175,14 @@ infer_firmware() {
   esac
 }
 
+lookup_topology_value() {
+  local uuid="$1"
+  local jq_filter="$2"
+
+  [[ -f "${REDFISH_TOPOLOGY_FILE}" ]] || return 0
+  jq -r --arg uuid "${uuid}" "${jq_filter} // empty" "${REDFISH_TOPOLOGY_FILE}"
+}
+
 is_true() {
   case "${1,,}" in
     true|yes|1|on) return 0 ;;
@@ -254,6 +263,20 @@ while IFS= read -r system_uri; do
     rack="$(printf '%s' "${chassis_json}" | jq -r '.Location.Placement.Rack // empty')"
     rack_offset="$(printf '%s' "${chassis_json}" | jq -r '.Location.Placement.RackOffset // empty')"
   fi
+
+  # Sushy can expose implementation-generated Chassis links for some VMs before
+  # the topology proxy has patched them. When that happens, fall back to the
+  # generated topology file so inventory names stay stable, e.g.
+  # rack-b-u14-small instead of dropping the host.
+  if [[ -z "${rack}" && -n "${uuid}" ]]; then
+    topology_rack="$(lookup_topology_value "${uuid}" '.systems[$uuid].rack')"
+    topology_rack_offset="$(lookup_topology_value "${uuid}" '.systems[$uuid].rack_offset')"
+    if [[ -n "${topology_rack}" ]]; then
+      rack="${topology_rack}"
+      rack_offset="${topology_rack_offset}"
+    fi
+  fi
+
   if [[ -z "${rack}" ]]; then
     if is_true "${ALLOW_TOPOLOGY_FALLBACK}"; then
       rack="unknown-rack"

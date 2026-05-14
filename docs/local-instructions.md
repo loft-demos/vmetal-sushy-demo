@@ -28,11 +28,13 @@ Without the HWE kernel, `enp197s0` will not appear and the machine will have no 
 | Thing | Value |
 | --- | --- |
 | Management NIC | `enp197s0` |
+| VM LAN NIC | set this to your second physical NIC |
 | LAN IP | `192.168.50.61` |
 | Gateway IP (free) | `192.168.50.200` |
 | Domain | `vdemo.local` |
 | Platform UI | `https://vcp.vdemo.local` |
 | Provisioning bridge | `br-provision` @ `172.22.0.1/24` |
+| Optional VM LAN bridge | `br-lan` |
 | Sushy Tools | `http://172.22.0.1:8000` |
 | OS Image server | `http://172.22.0.1:9000` |
 
@@ -66,9 +68,12 @@ bash scripts/reset-demo.sh
 From your Mac (re-run any time you make changes):
 
 ```bash
-rsync -av --exclude='.git' \
+rsync -av \
+  --exclude='.git' \
+  --exclude='.env' \
   "/Users/kmadel/Library/Mobile Documents/com~apple~CloudDocs/projects/loft-demos/vmetal-sushy-demo/" \
-  kmadel@192.168.50.61:~/loft-demos/vmetal-sushy-demo/
+  kmadel@vmetal:~/loft-demos/vmetal-sushy-demo/
+
 ```
 
 ---
@@ -86,6 +91,8 @@ Set these values in `.env`:
 
 ```bash
 LAN_INTERFACE=enp197s0
+LAN_VM_INTERFACE=<second-physical-nic>
+LAN_VM_BRIDGE=br-lan
 LAN_IP=192.168.50.61
 VDEMO_DOMAIN=vdemo.local
 GATEWAY_IP=192.168.50.200
@@ -125,12 +132,23 @@ bash scripts/create-vms.sh
 
 `create-bridges.sh` creates `br-provision` at `172.22.0.1/24` with STP disabled and sets up NAT masquerade via `enp197s0` so provisioning VMs can reach the internet.
 
-By default this creates 4 small + 1 medium + 2 large demo nodes. The medium profile defaults to UEFI firmware, so you get one dedicated firmware-demo lane out of the box.
+If `LAN_VM_INTERFACE` and `LAN_VM_BRIDGE` are set, it also creates `br-lan`
+on the second physical NIC. Keep `enp197s0` as the host SSH/management NIC and
+do not reuse it as the VM LAN bridge uplink.
+
+By default this creates 4 small + 1 medium + 2 large demo nodes. The medium profile defaults to UEFI firmware, so you get one dedicated firmware-demo lane out of the box. In the dual-NIC setup, each VM gets:
+
+- NIC1 on `br-provision` for PXE/Ironic
+- NIC2 on `br-lan` for LAN/Kubernetes traffic
+
+The node bootstrap then prefers the LAN-side NIC and configures kubelet to use
+the LAN IP as `--node-ip`.
 
 Verify:
 
 ```bash
 ip addr show br-provision        # should show 172.22.0.1/24
+ip addr show br-lan              # should exist when LAN_VM_BRIDGE is enabled
 sudo virsh list --all            # 7 VMs, all shut off
 cat configs/vm-inventory.txt     # UUID, MAC, profile, firmware for each VM
 ```

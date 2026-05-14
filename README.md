@@ -73,6 +73,12 @@ Any dedicated Ubuntu 24.04 machine with at least 32 GB RAM, KVM support, and ~20
 
 ## Quickstart
 
+> **Advanced topology:** If Platform should run on a separate Raspberry Pi
+> cluster and the vMetal host should only provide Metal3/Sushy/libvirt
+> infrastructure, use
+> [Pi Platform with Connected vMetal Host](docs/pi-platform-connected-vmetal.md)
+> instead of the default single-host Platform install.
+
 Copy the environment file and edit it for your setup:
 
 ```bash
@@ -87,7 +93,9 @@ At minimum set these before proceeding:
 - `GATEWAY_IP` — one free LAN IP outside your router's DHCP range (e.g. `192.168.1.200`); MetalLB assigns this to the Gateway
 - `METALLB_IP_RANGE` — single IP or range for MetalLB (e.g. `192.168.1.200-192.168.1.200`)
 - `LAN_IP` — the MINISFORUM's own LAN IP address; used by Mac DNS setup to reach dnsmasq
-- `LAN_INTERFACE` — the MINISFORUM's management NIC name (e.g. `enp1s0`)
+- `LAN_INTERFACE` — the MINISFORUM's management/SSH NIC name (e.g. `enp1s0`)
+- `LAN_VM_INTERFACE` — optional second physical NIC dedicated to VM LAN access
+- `LAN_VM_BRIDGE` — optional VM LAN bridge name (for example `br-lan`)
 - `VM_IMAGE_DIR` — path for VM disk images; point at a 2 TB NVMe SSD for best performance
 
 Then run each step in order:
@@ -111,9 +119,19 @@ sudo virsh list --all
 
 ### 2. Create the provisioning bridge
 
+If your host has two physical NICs, the recommended topology is:
+
+- keep `LAN_INTERFACE` as the host's current SSH/uplink NIC
+- set `LAN_VM_INTERFACE` to the second physical NIC
+- set `LAN_VM_BRIDGE=br-lan`
+
+That keeps host SSH stable while giving provisioned VM nodes a second NIC on
+your real LAN.
+
 Creates `br-provision` (172.22.0.1/24) as an isolated Linux bridge with STP disabled. Also enables IP forwarding and adds a NAT masquerade rule via `LAN_INTERFACE` so provisioning VMs can reach the internet for DNS and container image pulls.
 
 > **Set `LAN_INTERFACE` in `.env` before running.** Check your outbound interface with `ip route show default` — wrong value means VMs cannot pull container images.
+> If you enable `LAN_VM_INTERFACE`, do not point it at the same NIC as `LAN_INTERFACE`.
 
 ```bash
 bash scripts/create-bridges.sh
@@ -128,7 +146,7 @@ ping -c 3 8.8.8.8   # should succeed (confirms NAT is working from provisioning 
 
 ### 3. Create the demo VMs
 
-Creates 4 small VMs, 2 medium VMs, and 2 large VMs by default. All are attached to `br-provision` and spread across two simulated racks. The medium profile remains the dedicated UEFI demo lane, while the stock small and large pools stay on the current BIOS-style boot flow. Writes `configs/vm-inventory.txt`.
+Creates 4 small VMs, 2 medium VMs, and 2 large VMs by default. All are attached to `br-provision` and spread across two simulated racks. If `LAN_VM_BRIDGE` is set, each VM also gets a second NIC on that bridge for workload/LAN traffic while PXE stays on the provisioning NIC. The medium profile remains the dedicated UEFI demo lane, while the stock small and large pools stay on the current BIOS-style boot flow. Writes `configs/vm-inventory.txt`.
 
 ```bash
 bash scripts/create-vms.sh
@@ -142,6 +160,12 @@ cat configs/vm-inventory.txt
 ```
 
 Adjust `MEDIUM_VM_COUNT` or `RACK_NAMES` in `.env` if you want a different inventory mix, then re-run `bash scripts/create-vms.sh`.
+
+In the current dual-NIC model, the installed node OS is configured from a
+`network-data-template-secret` that brings up only the LAN NIC post-boot. The
+provisioning NIC remains part of the Metal3/Ironic lifecycle, but the running
+node itself is reached on its LAN IP (`192.168.50.x`) for SSH, kubelet
+registration, and NodePort/LoadBalancer traffic.
 
 ### 4. Start Sushy Tools
 
@@ -468,6 +492,8 @@ manifests/
     vcluster-vmetal.yaml         — VirtualClusterInstance using vmetal-template (starts at v1.34.7)
     vmetal-static-template.yaml  — static VirtualClusterTemplate with per-capacity quantities + customerSelector + rackSelector
     vcluster-vmetal-static.yaml  — VirtualClusterInstance using vmetal-static-template
+    vmetal-llm-nodeip-template.yaml — tiny LLM VirtualClusterTemplate exposed through private-node NodeIP:NodePort
+    vmetal-llm-tailscale-template.yaml — tiny LLM VirtualClusterTemplate exposed through Tailscale
   baremetal/
     bmc-secret.yaml         — BMC credential Secret template
     baremetal-host.yaml     — BareMetalHost template

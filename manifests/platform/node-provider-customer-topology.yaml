@@ -23,71 +23,15 @@ spec:
 
   properties:
     vcluster.com/os-image: ubuntu-noble-bootstrap
-    vcluster.com/ssh-keys: admin-macbook
-    # The stock demo keeps bootstrap behavior inline so the repo is runnable
-    # end-to-end with no extra secrets. For a stronger operator story, see
-    # docs/network-data-template-demo.md and swap this to
-    # vcluster.com/user-data-template-secret plus, when supported by your
-    # vMetal build, a network-data-template-based flow.
-    vcluster.com/user-data: |
-      #cloud-config
-      write_files:
-        - path: /etc/vcluster-common
-          permissions: "0644"
-          content: |
-            common config
-        - path: /usr/local/bin/configure-vdemo-node-bootstrap
-          permissions: "0755"
-          content: |
-            #!/bin/sh
-            set -eu
-
-            iface="$(ip route show default 0.0.0.0/0 | awk 'NR==1 {print $5}')"
-            [ -n "${iface}" ] || exit 1
-
-            resolvectl domain "${iface}" '~vdemo.local'
-            resolvectl default-route "${iface}" yes
-
-            cert_tmp="$(mktemp)"
-            tries=0
-            while true; do
-              if curl -fsSL "http://172.22.0.1:9000/vdemo-platform.crt" -o "${cert_tmp}"; then
-                break
-              fi
-              tries=$((tries + 1))
-              if [ "${tries}" -ge 20 ]; then
-                echo "failed to download platform certificate after ${tries} attempts" >&2
-                exit 1
-              fi
-              sleep 3
-            done
-
-            install -D -m 0644 "${cert_tmp}" /usr/local/share/ca-certificates/vdemo-platform.crt
-            rm -f "${cert_tmp}"
-            update-ca-certificates
-            systemctl try-restart vcluster || true
-        - path: /etc/systemd/system/vdemo-resolved-domain.service
-          permissions: "0644"
-          content: |
-            [Unit]
-            Description=Configure vdemo.local DNS routing and trust the platform certificate
-            Wants=network-online.target
-            After=network-online.target systemd-resolved.service
-
-            [Service]
-            Type=oneshot
-            ExecStart=/usr/local/bin/configure-vdemo-node-bootstrap
-            RemainAfterExit=yes
-
-            [Install]
-            WantedBy=multi-user.target
-      runcmd:
-        - systemctl daemon-reload
-        - systemctl enable --now vdemo-resolved-domain.service
+    vcluster.com/ssh-keys: admin-bastion-host
+    # The namespaced network-data template secret configures only the LAN NIC
+    # in the installed node OS. Provisioning traffic stays on br-provision and
+    # the running node is managed on its LAN IP.
+    vcluster.com/network-data-template-secret: vcluster-platform/vmetal-dual-nic-network-template
 
   metal3:
     clusterRef:
-      cluster: loft-cluster
+      cluster: vmetal-cluster
       namespace: metal3-system
 
     deploy:

@@ -7,8 +7,11 @@
 #
 # Supported inventory formats:
 #   NAME UUID MAC PROFILE FIRMWARE RACK
+#   NAME UUID MAC PROFILE FIRMWARE RACK LAN_MAC
 #   NAME UUID MAC PROFILE FIRMWARE RACK CUSTOMER
 #   NAME UUID MAC PROFILE FIRMWARE RACK CUSTOMER BMC_ADDRESS
+#   NAME UUID MAC PROFILE FIRMWARE RACK LAN_MAC CUSTOMER
+#   NAME UUID MAC PROFILE FIRMWARE RACK LAN_MAC CUSTOMER BMC_ADDRESS
 #
 # The CUSTOMER column is informational for the generated inventory and is not
 # applied to BareMetalHost labels in the current pool-based topology model.
@@ -42,7 +45,6 @@ PROVISION_DNS_SERVERS="${PROVISION_DNS_SERVERS:-}"
 SUSHY_PORT="${SUSHY_PORT:-8000}"
 # First assignable VM IP — .1 is the bridge, .2 is the DHCP VIP
 VM_IP_START="${VM_IP_START:-172.22.0.11}"
-
 if [[ -f "${REPO_ROOT}/.env" ]]; then
   # shellcheck source=/dev/null
   source "${REPO_ROOT}/.env"
@@ -108,6 +110,10 @@ accelerator_for_profile() {
   esac
 }
 
+is_mac_address() {
+  [[ "$1" =~ ^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}$ ]]
+}
+
 # ---------------------------------------------------------------------------
 # Emit YAML for each VM in the inventory
 # ---------------------------------------------------------------------------
@@ -122,7 +128,36 @@ while read -r line; do
   # Skip comments and blank lines
   [[ "${line}" =~ ^#.*$ || -z "${line}" ]] && continue
 
-  read -r vm_name uuid mac profile firmware rack customer bmc_address <<< "${line}"
+  read -r -a fields <<< "${line}"
+  [[ ${#fields[@]} -ge 6 ]] || die "Inventory line must contain at least 6 columns: ${line}"
+
+  vm_name="${fields[0]}"
+  uuid="${fields[1]}"
+  mac="${fields[2]}"
+  profile="${fields[3]}"
+  firmware="${fields[4]}"
+  rack="${fields[5]}"
+  lan_mac=""
+  customer="unassigned"
+  bmc_address=""
+
+  if (( ${#fields[@]} >= 7 )); then
+    if is_mac_address "${fields[6]}"; then
+      lan_mac="${fields[6]}"
+      if (( ${#fields[@]} >= 8 )); then
+        customer="${fields[7]}"
+      fi
+      if (( ${#fields[@]} >= 9 )); then
+        bmc_address="${fields[8]}"
+      fi
+    else
+      customer="${fields[6]}"
+      if (( ${#fields[@]} >= 8 )); then
+        bmc_address="${fields[7]}"
+      fi
+    fi
+  fi
+
   rack="${rack:-rack-a}"
   customer="${customer:-unassigned}"
   read -r topology_row topology_az <<< "$(lookup_rack_topology "${rack}")"
@@ -136,6 +171,16 @@ while read -r line; do
   k8s_name="${vm_name}"
   secret_name="${BMC_SHARED_SECRET_NAME:-${k8s_name}-bmc-creds}"
   redfish_addr="${bmc_address:-redfish+http://${PROVISION_IP}:${SUSHY_PORT}/redfish/v1/Systems/${uuid}}"
+  dns_service_address="${PROVISION_DNS_SERVERS%%,*}"
+  dns_service_address="${dns_service_address:-${PROVISION_IP}}"
+
+  lan_mac_annotation=""
+  if [[ -n "${lan_mac}" ]]; then
+    lan_mac_annotation="$(cat <<EOF
+    lan.vcluster.com/mac: "${lan_mac}"
+EOF
+)"
+  fi
 
   if [[ -n "${BMC_SHARED_SECRET_NAME}" && "${shared_secret_emitted}" == "false" ]]; then
     cat <<EOF
@@ -190,6 +235,7 @@ metadata:
     metal3.vcluster.com/ip-address: "${vm_ip}/${prefix_len}"
     metal3.vcluster.com/gateway: "${PROVISION_GATEWAY}"
     metal3.vcluster.com/dns-servers: "${PROVISION_DNS_SERVERS}"
+${lan_mac_annotation}
 spec:
   online: true
   automatedCleaningMode: metadata

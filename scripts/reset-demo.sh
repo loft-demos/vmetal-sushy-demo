@@ -17,6 +17,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 PROVISION_BRIDGE="${PROVISION_BRIDGE:-br-provision}"
+LAN_VM_BRIDGE="${LAN_VM_BRIDGE:-}"
+LAN_VM_INTERFACE="${LAN_VM_INTERFACE:-}"
 SUSHY_PORT="${SUSHY_PORT:-8000}"
 SUSHY_UPSTREAM_PORT="${SUSHY_UPSTREAM_PORT:-8001}"
 
@@ -27,11 +29,13 @@ fi
 
 KEEP_BRIDGE=false
 KEEP_VMS=false
+REMOVE_LAN_BRIDGE=false
 
 for arg in "$@"; do
   case "${arg}" in
     --keep-bridge) KEEP_BRIDGE=true ;;
     --keep-vms)    KEEP_VMS=true ;;
+    --remove-lan-bridge) REMOVE_LAN_BRIDGE=true ;;
     *) echo "Unknown flag: ${arg}" >&2; exit 1 ;;
   esac
 done
@@ -46,6 +50,7 @@ echo ""
 echo " This will:"
 [[ "${KEEP_VMS}" == "false" ]]    && echo "   - Destroy all demo libvirt VMs"
 [[ "${KEEP_BRIDGE}" == "false" ]] && echo "   - Remove the provisioning bridge (${PROVISION_BRIDGE})"
+[[ "${REMOVE_LAN_BRIDGE}" == "true" && -n "${LAN_VM_BRIDGE}" ]] && echo "   - Remove the optional VM LAN bridge (${LAN_VM_BRIDGE})"
 echo "   - Stop sushy-tools (process or service)"
 echo ""
 echo " It will NOT remove vCluster Platform or Kubernetes resources."
@@ -113,6 +118,27 @@ if [[ "${KEEP_BRIDGE}" == "false" ]]; then
   fi
 else
   log "--keep-bridge specified — skipping bridge removal"
+fi
+
+if [[ "${REMOVE_LAN_BRIDGE}" == "true" && -n "${LAN_VM_BRIDGE}" ]]; then
+  if ip link show "${LAN_VM_BRIDGE}" &>/dev/null; then
+    log "Removing LAN bridge '${LAN_VM_BRIDGE}'..."
+    if [[ -n "${LAN_VM_INTERFACE}" ]]; then
+      sudo ip link set "${LAN_VM_INTERFACE}" nomaster 2>/dev/null || true
+    fi
+    sudo ip link set "${LAN_VM_BRIDGE}" down 2>/dev/null || true
+    sudo ip link delete "${LAN_VM_BRIDGE}" type bridge 2>/dev/null || \
+      warn "Could not delete LAN bridge interface — it may already be gone"
+    sudo rm -f \
+      "/etc/systemd/network/20-${LAN_VM_BRIDGE}.netdev" \
+      "/etc/systemd/network/20-${LAN_VM_BRIDGE}.network"
+    if [[ -n "${LAN_VM_INTERFACE}" ]]; then
+      sudo rm -f "/etc/systemd/network/20-${LAN_VM_INTERFACE}-to-${LAN_VM_BRIDGE}.network"
+    fi
+    sudo systemctl reload-or-restart systemd-networkd 2>/dev/null || true
+  else
+    log "LAN bridge '${LAN_VM_BRIDGE}' does not exist — nothing to remove."
+  fi
 fi
 
 # ---------------------------------------------------------------------------

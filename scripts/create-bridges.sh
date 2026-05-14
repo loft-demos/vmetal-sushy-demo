@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# create-bridges.sh — create the provisioning Linux bridge for vmetal-sushy-demo
+# create-bridges.sh — create Linux bridges for the vmetal-sushy-demo
 #
 # Creates br-provision (or $PROVISION_BRIDGE) as an isolated Linux bridge with
 # STP disabled. Metal3/Ironic will provide DHCP on this network — do NOT
 # attach another DHCP server to this bridge.
 #
-# For a single-machine demo the bridge does not need a physical NIC enslaved.
-# VMs attach to it directly and the host bridge IP is the gateway/Redfish endpoint.
+# Optionally creates a second VM LAN bridge (for example br-lan) that enslaves
+# a dedicated physical NIC. This is the safe dual-NIC topology:
+#   - keep host SSH / management on LAN_INTERFACE
+#   - dedicate LAN_VM_INTERFACE to VM LAN access through LAN_VM_BRIDGE
 #
 # Run after bootstrap-host.sh:
 #   bash scripts/create-bridges.sh
@@ -21,6 +23,9 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROVISION_BRIDGE="${PROVISION_BRIDGE:-br-provision}"
 PROVISION_IP="${PROVISION_IP:-172.22.0.1}"
 PROVISION_CIDR="${PROVISION_CIDR:-172.22.0.0/24}"
+LAN_INTERFACE="${LAN_INTERFACE:-enp1s0}"
+LAN_VM_BRIDGE="${LAN_VM_BRIDGE:-}"
+LAN_VM_INTERFACE="${LAN_VM_INTERFACE:-}"
 
 if [[ -f "${REPO_ROOT}/.env" ]]; then
   # shellcheck source=/dev/null
@@ -29,10 +34,23 @@ fi
 
 PROVISION_PREFIX="${PROVISION_CIDR#*/}"
 PROVISION_ADDR="${PROVISION_IP}/${PROVISION_PREFIX}"
-
 log()  { echo "[create-bridges] $*"; }
 warn() { echo "[create-bridges] WARNING: $*" >&2; }
 die()  { echo "[create-bridges] ERROR: $*" >&2; exit 1; }
+
+PROVISION_NETDEV_FILE="/etc/systemd/network/10-${PROVISION_BRIDGE}.netdev"
+PROVISION_NETWORK_FILE="/etc/systemd/network/10-${PROVISION_BRIDGE}.network"
+LAN_NETDEV_FILE=""
+LAN_NETWORK_FILE=""
+LAN_SLAVE_FILE=""
+
+if [[ -n "${LAN_VM_BRIDGE}" ]]; then
+  LAN_NETDEV_FILE="/etc/systemd/network/20-${LAN_VM_BRIDGE}.netdev"
+  LAN_NETWORK_FILE="/etc/systemd/network/20-${LAN_VM_BRIDGE}.network"
+fi
+if [[ -n "${LAN_VM_BRIDGE}" && -n "${LAN_VM_INTERFACE}" ]]; then
+  LAN_SLAVE_FILE="/etc/systemd/network/20-${LAN_VM_INTERFACE}-to-${LAN_VM_BRIDGE}.network"
+fi
 
 # ---------------------------------------------------------------------------
 # 1. Check for subnet conflicts with existing libvirt networks
@@ -50,12 +68,9 @@ if command -v virsh &>/dev/null; then
   done
 fi
 
-NETDEV_FILE="/etc/systemd/network/10-${PROVISION_BRIDGE}.netdev"
-NETWORK_FILE="/etc/systemd/network/10-${PROVISION_BRIDGE}.network"
-
-write_networkd_files() {
-  log "Writing ${NETDEV_FILE} for persistence across reboots..."
-  sudo tee "${NETDEV_FILE}" > /dev/null <<EOF
+write_provision_networkd_files() {
+  log "Writing ${PROVISION_NETDEV_FILE} for persistence across reboots..."
+  sudo tee "${PROVISION_NETDEV_FILE}" > /dev/null <<EOF
 [NetDev]
 Name=${PROVISION_BRIDGE}
 Kind=bridge
@@ -64,8 +79,8 @@ Kind=bridge
 STP=no
 EOF
 
-  log "Writing ${NETWORK_FILE} for persistence across reboots..."
-  sudo tee "${NETWORK_FILE}" > /dev/null <<EOF
+  log "Writing ${PROVISION_NETWORK_FILE} for persistence across reboots..."
+  sudo tee "${PROVISION_NETWORK_FILE}" > /dev/null <<EOF
 [Match]
 Name=${PROVISION_BRIDGE}
 
@@ -75,6 +90,41 @@ LinkLocalAddressing=no
 IPv6AcceptRA=no
 ConfigureWithoutCarrier=yes
 KeepConfiguration=static
+EOF
+}
+
+write_lan_bridge_networkd_files() {
+  [[ -n "${LAN_VM_BRIDGE}" ]] || return 0
+  [[ -n "${LAN_VM_INTERFACE}" ]] || return 0
+
+  log "Writing ${LAN_NETDEV_FILE} for persistence across reboots..."
+  sudo tee "${LAN_NETDEV_FILE}" > /dev/null <<EOF
+[NetDev]
+Name=${LAN_VM_BRIDGE}
+Kind=bridge
+
+[Bridge]
+STP=no
+EOF
+
+  log "Writing ${LAN_NETWORK_FILE} for persistence across reboots..."
+  sudo tee "${LAN_NETWORK_FILE}" > /dev/null <<EOF
+[Match]
+Name=${LAN_VM_BRIDGE}
+
+[Network]
+LinkLocalAddressing=no
+IPv6AcceptRA=no
+ConfigureWithoutCarrier=yes
+EOF
+
+  log "Writing ${LAN_SLAVE_FILE} for persistence across reboots..."
+  sudo tee "${LAN_SLAVE_FILE}" > /dev/null <<EOF
+[Match]
+Name=${LAN_VM_INTERFACE}
+
+[Network]
+Bridge=${LAN_VM_BRIDGE}
 EOF
 }
 
@@ -90,7 +140,7 @@ fi
 
 sudo ip link set "${PROVISION_BRIDGE}" type bridge stp_state 0
 sudo ip link set "${PROVISION_BRIDGE}" up
-write_networkd_files
+write_provision_networkd_files
 
 # Reload networkd so it is aware of the new config (the bridge is already up)
 sudo systemctl reload-or-restart systemd-networkd 2>/dev/null || true
@@ -103,14 +153,43 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 3. Optionally create a second VM LAN bridge backed by a dedicated NIC
+# ---------------------------------------------------------------------------
+if [[ -n "${LAN_VM_BRIDGE}" || -n "${LAN_VM_INTERFACE}" ]]; then
+  [[ -n "${LAN_VM_BRIDGE}" ]] || die "LAN_VM_INTERFACE requires LAN_VM_BRIDGE to be set"
+  [[ -n "${LAN_VM_INTERFACE}" ]] || die "LAN_VM_BRIDGE requires LAN_VM_INTERFACE to be set"
+  [[ "${LAN_VM_BRIDGE}" != "${PROVISION_BRIDGE}" ]] || die "LAN_VM_BRIDGE must differ from PROVISION_BRIDGE"
+  [[ "${LAN_VM_INTERFACE}" != "${LAN_INTERFACE}" ]] || die "LAN_VM_INTERFACE matches LAN_INTERFACE. Keep SSH on one NIC and dedicate a second NIC to VM LAN bridging."
+
+  ip link show "${LAN_VM_INTERFACE}" &>/dev/null || die "LAN VM interface '${LAN_VM_INTERFACE}' not found"
+
+  if ip -4 addr show dev "${LAN_VM_INTERFACE}" | grep -q 'inet '; then
+    die "LAN VM interface '${LAN_VM_INTERFACE}' already has an IPv4 address. Use a dedicated second NIC with no host IP so SSH stays on ${LAN_INTERFACE}."
+  fi
+
+  if ip link show "${LAN_VM_BRIDGE}" &>/dev/null; then
+    log "LAN bridge '${LAN_VM_BRIDGE}' already exists — repairing state if needed..."
+  else
+    log "Creating LAN bridge '${LAN_VM_BRIDGE}' for VM workload traffic..."
+    sudo ip link add name "${LAN_VM_BRIDGE}" type bridge
+  fi
+
+  sudo ip link set "${LAN_VM_BRIDGE}" type bridge stp_state 0
+  sudo ip link set "${LAN_VM_BRIDGE}" up
+  sudo ip link set "${LAN_VM_INTERFACE}" down || true
+  sudo ip link set "${LAN_VM_INTERFACE}" master "${LAN_VM_BRIDGE}"
+  sudo ip link set "${LAN_VM_INTERFACE}" up
+  write_lan_bridge_networkd_files
+  sudo systemctl reload-or-restart systemd-networkd 2>/dev/null || true
+fi
+
+# ---------------------------------------------------------------------------
 # 4. Enable IP forwarding and NAT so provisioning VMs can reach the internet
 #
 # Provisioned VMs can use the host's dnsmasq on PROVISION_IP for split-horizon
 # demo DNS such as *.vdemo.local. They still need outbound connectivity for
 # container image pulls and any direct internet access after boot.
 # ---------------------------------------------------------------------------
-LAN_INTERFACE="${LAN_INTERFACE:-enp1s0}"
-
 log "Enabling IP forwarding..."
 sudo sysctl -w net.ipv4.ip_forward=1
 SYSCTL_CONF="/etc/sysctl.d/99-vmetal-forward.conf"
@@ -175,6 +254,9 @@ echo " Bridge : ${PROVISION_BRIDGE}"
 echo " Host IP: ${PROVISION_ADDR}"
 echo " Network: ${PROVISION_CIDR}"
 echo " NAT out : ${LAN_INTERFACE} (VMs can reach internet)"
+if [[ -n "${LAN_VM_BRIDGE}" && -n "${LAN_VM_INTERFACE}" ]]; then
+  echo " VM LAN  : ${LAN_VM_BRIDGE} via ${LAN_VM_INTERFACE} (dedicated second NIC)"
+fi
 echo ""
 echo " Do NOT start a DHCP server on this bridge."
 echo " Metal3/Ironic (deployed by vMetal) will provide DHCP."

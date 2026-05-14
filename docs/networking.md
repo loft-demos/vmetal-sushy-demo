@@ -2,10 +2,19 @@
 
 ## Overview
 
-This demo uses two network segments on the Ubuntu host:
+This demo supports a safer dual-NIC host layout with two VM-facing network
+segments:
 
-1. **Management NIC** (`enp197s0` on the MINISFORUM, variable elsewhere) — carries LAN traffic: SSH, vCluster Platform UI, internet access for the host.
-2. **Provisioning bridge** (`br-provision`, `172.22.0.0/24`) — carries PXE, DHCP, Redfish, and post-provisioning node traffic. All libvirt VMs attach to this bridge.
+1. **Host management NIC** (`LAN_INTERFACE`, for example `enp197s0`) — keeps the
+   Ubuntu host reachable for SSH, the vCluster Platform UI, and normal internet
+   access. Leave this NIC alone if it already works.
+2. **Provisioning bridge** (`br-provision`, `172.22.0.0/24`) — private,
+   host-only Metal3/Ironic network for PXE, DHCP, Redfish, and the local OS
+   image server.
+3. **VM LAN bridge** (`LAN_VM_BRIDGE`, for example `br-lan`) — optional bridge
+   backed by a dedicated second physical NIC (`LAN_VM_INTERFACE`). Provisioned
+   VMs use a second virtio NIC on this bridge for normal LAN-facing Kubernetes
+   node traffic.
 
 ```
 Host machine (Ubuntu 24.04)
@@ -17,14 +26,26 @@ Host machine (Ubuntu 24.04)
 └── br-provision  (Linux bridge — provisioning network)
       IP: 172.22.0.1/24
       │
-      ├── vmetal-small-1  (VM, 52:54:00:aa:00:00, static 172.22.0.11)
-      ├── vmetal-small-2  (VM, 52:54:00:aa:00:01, static 172.22.0.12)
-      ├── vmetal-small-3  (VM, 52:54:00:aa:00:02, static 172.22.0.13)
-      ├── vmetal-large-1  (VM, 52:54:00:bb:00:00, static 172.22.0.14)
-      └── vmetal-large-2  (VM, 52:54:00:bb:00:01, static 172.22.0.15)
+      ├── vmetal-small-1  (PXE NIC, 52:54:00:aa:00:00, static 172.22.0.11)
+      ├── vmetal-small-2  (PXE NIC, 52:54:00:aa:00:01, static 172.22.0.12)
+      ├── vmetal-small-3  (PXE NIC, 52:54:00:aa:00:02, static 172.22.0.13)
+      ├── vmetal-large-1  (PXE NIC, 52:54:00:bb:00:00, static 172.22.0.14)
+      └── vmetal-large-2  (PXE NIC, 52:54:00:bb:00:01, static 172.22.0.15)
+
+Dedicated second NIC (for example enp198s0)
+│
+└── br-lan  (Linux bridge — workload/LAN network)
+      ├── vmetal-small-1  (LAN NIC, DHCP from router)
+      ├── vmetal-small-2  (LAN NIC, DHCP from router)
+      ├── vmetal-small-3  (LAN NIC, DHCP from router)
+      ├── vmetal-large-1  (LAN NIC, DHCP from router)
+      └── vmetal-large-2  (LAN NIC, DHCP from router)
 ```
 
-> **Note:** The management NIC name varies by hardware. Check yours with `ip route show default` — the interface listed there is the one to use for `LAN_INTERFACE` in `.env`.
+> **Important:** If you have two physical NICs, keep the current SSH/uplink NIC
+> as `LAN_INTERFACE` and dedicate the second NIC to `LAN_VM_INTERFACE`. Do not
+> bridge your active SSH NIC unless you intentionally want to migrate the host
+> IP onto a bridge.
 
 ---
 
@@ -62,14 +83,19 @@ IPs are assigned statically by the vCP DHCP proxy using `metal3.vcluster.com/ip-
 
 ---
 
-## NAT masquerade — giving provisioned nodes internet access
+## NAT masquerade — keeping provisioning self-contained
 
-The provisioning bridge is not fully isolated. Provisioned bare metal nodes need internet access after booting Ubuntu to:
+The provisioning bridge stays private, but the provisioned bare metal nodes
+still need a basic path for the host-only provisioning flow to work cleanly:
 
 - Pull container images from `ghcr.io`, `registry.k8s.io`, `docker.io`
 - Reach DNS to resolve image registry hostnames
 
-The IPA ramdisk (used during Ironic inspection and image writing) does **not** need internet access — it gets the OS image from the local image server at `172.22.0.1:9000` (see below). But once Ubuntu is provisioned and kubelet starts, DNS and container image pulls go through the internet.
+The IPA ramdisk (used during Ironic inspection and image writing) does **not**
+need internet access — it gets the OS image from the local image server at
+`172.22.0.1:9000` (see below). The optional NAT rule keeps the provisioning
+network usable as a fallback path, but in the dual-NIC setup the provisioned
+node's steady-state Kubernetes traffic should move to the second LAN NIC.
 
 `create-bridges.sh` enables IP forwarding and adds an iptables MASQUERADE rule to route provisioning subnet traffic through the management NIC:
 
@@ -141,8 +167,11 @@ In this demo, the safest DNS server for provisioned nodes is the host bridge IP 
 
 ## The two 5G NICs on the MINISFORUM X1 Pro 370
 
-- **enp197s0**: management traffic — SSH, vCluster Platform UI, internet. Connected to LAN/router.
-- Second NIC (varies): not used in the basic demo. Could be enslaved to `br-provision` to expose the provisioning segment to physical lab machines, but unnecessary here.
+- **enp197s0**: keep this as the host management NIC for SSH, vCluster Platform
+  UI, and general host internet access.
+- Second NIC (varies): use this as `LAN_VM_INTERFACE` for `br-lan` so the
+  provisioned VM nodes get real LAN IPs without moving the host itself off its
+  working SSH path.
 
 Check your NIC names:
 

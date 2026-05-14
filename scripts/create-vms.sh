@@ -30,6 +30,7 @@ TOPOLOGY_GENERATOR="${REPO_ROOT}/hack/generate-redfish-topology.py"
 PROVISION_BRIDGE="${PROVISION_BRIDGE:-br-provision}"
 PROVISION_IP="${PROVISION_IP:-172.22.0.1}"
 SUSHY_PORT="${SUSHY_PORT:-8000}"
+LAN_VM_BRIDGE="${LAN_VM_BRIDGE:-}"
 
 SMALL_VM_COUNT="${SMALL_VM_COUNT:-4}"
 SMALL_VM_VCPUS="${SMALL_VM_VCPUS:-2}"
@@ -88,6 +89,10 @@ if ! ip link show "${PROVISION_BRIDGE}" &>/dev/null; then
   die "Bridge '${PROVISION_BRIDGE}' not found — run create-bridges.sh first"
 fi
 
+if [[ -n "${LAN_VM_BRIDGE}" ]] && ! ip link show "${LAN_VM_BRIDGE}" &>/dev/null; then
+  die "LAN bridge '${LAN_VM_BRIDGE}' not found — run create-bridges.sh first or unset LAN_VM_BRIDGE"
+fi
+
 # Ensure image directory exists
 if [[ ! -d "${VM_IMAGE_DIR}" ]]; then
   log "Creating VM image directory: ${VM_IMAGE_DIR}"
@@ -108,6 +113,18 @@ gen_mac() {
   hi=$(printf '%02x' $(( (index - 1) / 256 )))
   lo=$(printf '%02x' $(( (index - 1) % 256 )))
   echo "52:54:00:${profile}:${hi}:${lo}"
+}
+
+gen_lan_mac() {
+  local profile="$1"
+  local index="$2"
+
+  case "${profile}" in
+    aa) gen_mac "ac" "${index}" ;;
+    dd) gen_mac "dc" "${index}" ;;
+    bb) gen_mac "bc" "${index}" ;;
+    *) die "Unsupported LAN MAC profile '${profile}'" ;;
+  esac
 }
 
 # ---------------------------------------------------------------------------
@@ -131,7 +148,8 @@ rack_for_index() {
 
 # ---------------------------------------------------------------------------
 # Helper: create one VM
-# Usage: create_vm <name> <vcpus> <ram_mb> <disk_gb> <mac> <firmware> <secure_boot>
+# Usage:
+#   create_vm <name> <vcpus> <ram_mb> <disk_gb> <prov_mac> <firmware> <secure_boot> [lan_mac]
 # ---------------------------------------------------------------------------
 create_vm() {
   local name="$1"
@@ -141,10 +159,12 @@ create_vm() {
   local mac="$5"
   local firmware="${6:-bios}"
   local secure_boot="${7:-false}"
+  local lan_mac="${8:-}"
   local disk_path="${VM_IMAGE_DIR}/${name}.qcow2"
   local boot_args="network,hd,menu=off"
   local nvram_template=""
   local secure_flag="no"
+  local -a virt_install_args=()
 
   if sudo virsh dominfo "${name}" &>/dev/null; then
     log "Domain '${name}' already exists — skipping"
@@ -165,7 +185,7 @@ create_vm() {
     die "Unsupported firmware '${firmware}' for ${name}. Use 'bios' or 'uefi'."
   fi
 
-  log "Creating VM: ${name} (${vcpus} vCPU, ${ram_mb} MB RAM, ${disk_gb} GB disk, MAC ${mac}, firmware ${firmware})"
+  log "Creating VM: ${name} (${vcpus} vCPU, ${ram_mb} MB RAM, ${disk_gb} GB disk, PXE MAC ${mac}, firmware ${firmware})"
 
   # Pre-create an empty qcow2 disk. virt-install --import needs an existing disk
   # file; the VM boots from network (PXE via Metal3/Ironic) so the disk starts empty.
@@ -181,19 +201,29 @@ create_vm() {
     boot_args="network,hd,menu=off,loader=${OVMF_CODE_PATH},loader.readonly=yes,loader.type=pflash,loader.secure=${secure_flag},nvram.template=${nvram_template}"
   fi
 
-  sudo virt-install \
-    --name "${name}" \
-    --vcpus "${vcpus}" \
-    --memory "${ram_mb}" \
-    --disk "path=${disk_path},format=qcow2,bus=virtio" \
-    --network "bridge:${PROVISION_BRIDGE},model=virtio,mac=${mac}" \
-    --boot "${boot_args}" \
-    --os-variant "ubuntu24.04" \
-    --graphics "none" \
-    --console "pty,target_type=serial" \
-    --noautoconsole \
-    --import \
+  virt_install_args=(
+    --name "${name}"
+    --vcpus "${vcpus}"
+    --memory "${ram_mb}"
+    --disk "path=${disk_path},format=qcow2,bus=virtio"
+    --network "bridge:${PROVISION_BRIDGE},model=virtio,mac=${mac}"
+  )
+
+  if [[ -n "${LAN_VM_BRIDGE}" ]]; then
+    virt_install_args+=(--network "bridge:${LAN_VM_BRIDGE},model=virtio,mac=${lan_mac}")
+  fi
+
+  virt_install_args+=(
+    --boot "${boot_args}"
+    --os-variant "ubuntu24.04"
+    --graphics "none"
+    --console "pty,target_type=serial"
+    --noautoconsole
+    --import
     --noreboot
+  )
+
+  sudo virt-install "${virt_install_args[@]}"
 
   log "VM '${name}' defined successfully."
 }
@@ -205,7 +235,8 @@ log "=== Creating ${SMALL_VM_COUNT} small VMs ==="
 for i in $(seq 1 "${SMALL_VM_COUNT}"); do
   vm_name="${SMALL_VM_NAME_PREFIX}-${i}"
   mac=$(gen_mac "aa" "${i}")
-  create_vm "${vm_name}" "${SMALL_VM_VCPUS}" "${SMALL_VM_RAM_MB}" "${SMALL_VM_DISK_GB}" "${mac}" "${SMALL_VM_FIRMWARE}" "${SMALL_VM_SECURE_BOOT}"
+  lan_mac=$(gen_lan_mac "aa" "${i}")
+  create_vm "${vm_name}" "${SMALL_VM_VCPUS}" "${SMALL_VM_RAM_MB}" "${SMALL_VM_DISK_GB}" "${mac}" "${SMALL_VM_FIRMWARE}" "${SMALL_VM_SECURE_BOOT}" "${lan_mac}"
 done
 
 # ---------------------------------------------------------------------------
@@ -215,7 +246,8 @@ log "=== Creating ${MEDIUM_VM_COUNT} medium VMs ==="
 for i in $(seq 1 "${MEDIUM_VM_COUNT}"); do
   vm_name="${MEDIUM_VM_NAME_PREFIX}-${i}"
   mac=$(gen_mac "dd" "${i}")
-  create_vm "${vm_name}" "${MEDIUM_VM_VCPUS}" "${MEDIUM_VM_RAM_MB}" "${MEDIUM_VM_DISK_GB}" "${mac}" "${MEDIUM_VM_FIRMWARE}" "${MEDIUM_VM_SECURE_BOOT}"
+  lan_mac=$(gen_lan_mac "dd" "${i}")
+  create_vm "${vm_name}" "${MEDIUM_VM_VCPUS}" "${MEDIUM_VM_RAM_MB}" "${MEDIUM_VM_DISK_GB}" "${mac}" "${MEDIUM_VM_FIRMWARE}" "${MEDIUM_VM_SECURE_BOOT}" "${lan_mac}"
 done
 
 # ---------------------------------------------------------------------------
@@ -225,12 +257,13 @@ log "=== Creating ${LARGE_VM_COUNT} large VMs ==="
 for i in $(seq 1 "${LARGE_VM_COUNT}"); do
   vm_name="${LARGE_VM_NAME_PREFIX}-${i}"
   mac=$(gen_mac "bb" "${i}")
-  create_vm "${vm_name}" "${LARGE_VM_VCPUS}" "${LARGE_VM_RAM_MB}" "${LARGE_VM_DISK_GB}" "${mac}" "${LARGE_VM_FIRMWARE}" "${LARGE_VM_SECURE_BOOT}"
+  lan_mac=$(gen_lan_mac "bb" "${i}")
+  create_vm "${vm_name}" "${LARGE_VM_VCPUS}" "${LARGE_VM_RAM_MB}" "${LARGE_VM_DISK_GB}" "${mac}" "${LARGE_VM_FIRMWARE}" "${LARGE_VM_SECURE_BOOT}" "${lan_mac}"
 done
 
 # ---------------------------------------------------------------------------
 # Write VM inventory
-# Format: <name> <uuid> <mac> <profile> <firmware> <rack>
+# Format: <name> <uuid> <mac> <profile> <firmware> <rack> [lan-mac]
 # Used by hack/generate-bmh.sh to produce BareMetalHost manifests.
 # ---------------------------------------------------------------------------
 log "Writing VM inventory to ${INVENTORY_FILE}..."
@@ -239,32 +272,47 @@ log "Writing VM inventory to ${INVENTORY_FILE}..."
 cat > "${INVENTORY_FILE}" <<'EOF'
 # vmetal-sushy-demo VM inventory
 # Auto-generated by create-vms.sh — do not edit manually.
-# Format: NAME UUID MAC PROFILE FIRMWARE RACK
+# Format: NAME UUID MAC PROFILE FIRMWARE RACK [LAN_MAC]
 # Used by hack/generate-bmh.sh to generate rack-aware BareMetalHost manifests.
 EOF
 
 for i in $(seq 1 "${SMALL_VM_COUNT}"); do
   vm_name="${SMALL_VM_NAME_PREFIX}-${i}"
   mac=$(gen_mac "aa" "${i}")
+  lan_mac=$(gen_lan_mac "aa" "${i}")
   uuid=$(sudo virsh dominfo "${vm_name}" 2>/dev/null | awk '/^UUID/{print $2}' || echo "UNKNOWN")
   rack=$(rack_for_index "${i}")
-  echo "${vm_name} ${uuid} ${mac} small ${SMALL_VM_FIRMWARE} ${rack}" >> "${INVENTORY_FILE}"
+  if [[ -n "${LAN_VM_BRIDGE}" ]]; then
+    echo "${vm_name} ${uuid} ${mac} small ${SMALL_VM_FIRMWARE} ${rack} ${lan_mac}" >> "${INVENTORY_FILE}"
+  else
+    echo "${vm_name} ${uuid} ${mac} small ${SMALL_VM_FIRMWARE} ${rack}" >> "${INVENTORY_FILE}"
+  fi
 done
 
 for i in $(seq 1 "${MEDIUM_VM_COUNT}"); do
   vm_name="${MEDIUM_VM_NAME_PREFIX}-${i}"
   mac=$(gen_mac "dd" "${i}")
+  lan_mac=$(gen_lan_mac "dd" "${i}")
   uuid=$(sudo virsh dominfo "${vm_name}" 2>/dev/null | awk '/^UUID/{print $2}' || echo "UNKNOWN")
   rack=$(rack_for_index "${i}")
-  echo "${vm_name} ${uuid} ${mac} medium ${MEDIUM_VM_FIRMWARE} ${rack}" >> "${INVENTORY_FILE}"
+  if [[ -n "${LAN_VM_BRIDGE}" ]]; then
+    echo "${vm_name} ${uuid} ${mac} medium ${MEDIUM_VM_FIRMWARE} ${rack} ${lan_mac}" >> "${INVENTORY_FILE}"
+  else
+    echo "${vm_name} ${uuid} ${mac} medium ${MEDIUM_VM_FIRMWARE} ${rack}" >> "${INVENTORY_FILE}"
+  fi
 done
 
 for i in $(seq 1 "${LARGE_VM_COUNT}"); do
   vm_name="${LARGE_VM_NAME_PREFIX}-${i}"
   mac=$(gen_mac "bb" "${i}")
+  lan_mac=$(gen_lan_mac "bb" "${i}")
   uuid=$(sudo virsh dominfo "${vm_name}" 2>/dev/null | awk '/^UUID/{print $2}' || echo "UNKNOWN")
   rack=$(rack_for_index "${i}")
-  echo "${vm_name} ${uuid} ${mac} large ${LARGE_VM_FIRMWARE} ${rack}" >> "${INVENTORY_FILE}"
+  if [[ -n "${LAN_VM_BRIDGE}" ]]; then
+    echo "${vm_name} ${uuid} ${mac} large ${LARGE_VM_FIRMWARE} ${rack} ${lan_mac}" >> "${INVENTORY_FILE}"
+  else
+    echo "${vm_name} ${uuid} ${mac} large ${LARGE_VM_FIRMWARE} ${rack}" >> "${INVENTORY_FILE}"
+  fi
 done
 
 # ---------------------------------------------------------------------------

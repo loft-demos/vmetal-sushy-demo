@@ -1,0 +1,74 @@
+# httproute-tiny-llm-bridge.yaml — bridge host Gateway traffic to a private-node LLM
+#
+# Use this when the LLM runs on a bare-metal-backed Private Node and there is no
+# syncer path to copy an Ingress/HTTPRoute from the tenant cluster back to the
+# host cluster.
+#
+# Model:
+# - inside the tenant/private-node cluster, the LLM Service is exposed as NodePort 32080
+# - on the host cluster, we create a selector-less Service plus EndpointSlice
+# - the EndpointSlice points at the reachable private-node IP on the provisioning network
+# - an HTTPRoute attaches that host-side Service to the shared demo Gateway
+#
+# In the stock single-host demo, PRIVATE_NODE_IP_PLACEHOLDER can be the VM IP of
+# the claimed large node on br-provision, for example 172.22.0.14 or 172.22.0.15.
+#
+# In the split Pi+vMetal topology, this only works if the cluster running the
+# Gateway can route to the private-node IP. If the Pi cluster cannot reach the
+# provisioning subnet directly, add routing/NAT first or terminate the route on
+# a reachable proxy running on the vMetal host side instead.
+#
+# Apply with:
+#   source .env
+#   sed \
+#     -e "s|VDEMO_DOMAIN_PLACEHOLDER|${VDEMO_DOMAIN}|g" \
+#     -e "s|PRIVATE_NODE_IP_PLACEHOLDER|172.22.0.14|g" \
+#     manifests/gateway/httproute-tiny-llm-bridge.yaml \
+#     | kubectl apply -f -
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: tiny-llm-cpu-bridge
+  namespace: default
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 32080
+      protocol: TCP
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: tiny-llm-cpu-bridge
+  namespace: default
+  labels:
+    kubernetes.io/service-name: tiny-llm-cpu-bridge
+addressType: IPv4
+ports:
+  - name: http
+    protocol: TCP
+    port: 32080
+endpoints:
+  - addresses:
+      - PRIVATE_NODE_IP_PLACEHOLDER
+    conditions:
+      ready: true
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: tiny-llm-cpu
+  namespace: default
+spec:
+  parentRefs:
+    - name: demo-gateway
+      namespace: traefik
+      sectionName: https
+  hostnames:
+    - "llm.VDEMO_DOMAIN_PLACEHOLDER"
+  rules:
+    - backendRefs:
+        - name: tiny-llm-cpu-bridge
+          port: 8080

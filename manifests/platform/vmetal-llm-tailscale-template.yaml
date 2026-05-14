@@ -1,0 +1,368 @@
+# vmetal-llm-tailscale-template.yaml — standalone vCluster + private-node LLM demo
+#
+# This template is aimed at the "tiny CPU-only inference demo" path:
+# - the vCluster control plane runs as a standalone vCluster backed by one
+#   small vMetal node
+# - the workload lands on one large private node provisioned through vMetal
+# - a synced vCP Project Secret stub is created in the `tailscale` namespace so
+#   operator OAuth credentials can be injected at runtime
+# - the in-cluster Service is annotated for Tailscale exposure, so once the
+#   Tailscale Kubernetes Operator is installed in the created vCluster, the
+#   chat UI becomes reachable through a tailnet hostname with no extra Gateway,
+#   HTTPRoute, or MetalLB wiring
+#
+# The template intentionally stops short of installing the Tailscale operator
+# itself. That still needs a chart or manifest apply inside the created
+# vCluster, but the credentials can now come from a synced Project Secret
+# instead of being baked into the template or pushed through node cloud-init.
+#
+# Apply with:
+#   kubectl apply -f manifests/platform/vmetal-llm-tailscale-template.yaml
+#
+# Then create a VirtualClusterInstance from this template and point its
+# `clusterRef.cluster` at the connected cluster where the standalone vCluster
+# control plane should run.
+#
+# References:
+#   https://www.vcluster.com/docs/platform/api/resources/virtualclustertemplate
+#   https://www.vcluster.com/docs/platform/administer/secrets/project/create
+#   https://www.vcluster.com/docs/platform/use-platform/secrets/secret-sync
+#   https://tailscale.com/docs/features/kubernetes-operator/
+#   https://tailscale.com/docs/features/kubernetes-operator/how-to/cluster-ingress
+
+apiVersion: management.loft.sh/v1
+kind: VirtualClusterTemplate
+metadata:
+  name: vmetal-llm-tailscale-template
+spec:
+  displayName: "vMetal - Tiny LLM on Private Nodes"
+  description: >
+    Standalone vCluster backed by vMetal-provisioned bare metal, preloaded with
+    a tiny CPU-only llama.cpp chat demo. The in-cluster Service is annotated
+    for Tailscale exposure so the demo can be opened through a tailnet hostname
+    after the Tailscale Kubernetes Operator is installed in the created
+    vCluster.
+
+  owner:
+    team: loft-admins
+
+  template:
+    metadata:
+      labels:
+        demo.vcluster.com/type: tiny-llm
+        demo.vcluster.com/access: tailscale
+    instanceTemplate:
+      metadata:
+        labels:
+          demo.vcluster.com/type: tiny-llm
+          demo.vcluster.com/access: tailscale
+    helmRelease:
+      chart:
+        version: 0.34.0
+      values: |
+        controlPlane:
+          backingStore:
+            etcd:
+              embedded:
+                enabled: true
+          distro:
+            k8s:
+              image:
+                tag: "{{ .Values.kubernetesVersion }}"
+          standalone:
+            enabled: true
+            autoNodes:
+              provider: us-va-blacksburg-dc1
+              quantity: 1
+              nodeTypeSelector:
+                {{- if and .Values.customerSelector (ne (trim .Values.customerSelector) "") (ne (trim .Values.customerSelector) "all") }}
+                - property: vcluster.com/customer
+                  operator: In
+                  values:
+                    {{- range $customer := splitList "," .Values.customerSelector }}
+                    {{- $trimmedCustomer := trim $customer }}
+                    {{- if ne $trimmedCustomer "" }}
+                    - {{ $trimmedCustomer }}
+                    {{- end }}
+                    {{- end }}
+                {{- end }}
+                - property: vcluster.com/profile
+                  operator: In
+                  values:
+                    - small
+                {{- if and .Values.rackSelector (ne (trim .Values.rackSelector) "") (ne (trim .Values.rackSelector) "all") }}
+                - property: vcluster.com/rack
+                  operator: In
+                  values:
+                    {{- range $rack := splitList "," .Values.rackSelector }}
+                    {{- $trimmedRack := trim $rack }}
+                    {{- if ne $trimmedRack "" }}
+                    - {{ $trimmedRack }}
+                    {{- end }}
+                    {{- end }}
+                {{- end }}
+        privateNodes:
+          enabled: true
+          autoNodes:
+            - provider: us-va-blacksburg-dc1
+              static:
+                - name: tiny-llm-large-nodes
+                  quantity: {{ .Values.largeNodeCount }}
+                  nodeTypeSelector:
+                    {{- if and .Values.customerSelector (ne (trim .Values.customerSelector) "") (ne (trim .Values.customerSelector) "all") }}
+                    - property: vcluster.com/customer
+                      operator: In
+                      values:
+                        {{- range $customer := splitList "," .Values.customerSelector }}
+                        {{- $trimmedCustomer := trim $customer }}
+                        {{- if ne $trimmedCustomer "" }}
+                        - {{ $trimmedCustomer }}
+                        {{- end }}
+                        {{- end }}
+                    {{- end }}
+                    - property: vcluster.com/profile
+                      operator: In
+                      values:
+                        - large
+                    {{- if and .Values.rackSelector (ne (trim .Values.rackSelector) "") (ne (trim .Values.rackSelector) "all") }}
+                    - property: vcluster.com/rack
+                      operator: In
+                      values:
+                        {{- range $rack := splitList "," .Values.rackSelector }}
+                        {{- $trimmedRack := trim $rack }}
+                        {{- if ne $trimmedRack "" }}
+                        - {{ $trimmedRack }}
+                        {{- end }}
+                        {{- end }}
+                    {{- end }}
+        networking:
+          podCIDR: 10.64.0.0/16
+          serviceCIDR: 10.128.0.0/16
+    objects: |
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: tailscale
+      ---
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: operator-oauth
+        namespace: tailscale
+        labels:
+          loft.sh/project-secret-name: "{{ .Values.tailscaleProjectSecretName }}"
+      type: Opaque
+      ---
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: tiny-llm-cpu-demo
+        namespace: default
+        annotations:
+          tailscale.com/expose: "true"
+          tailscale.com/hostname: "{{ .Values.tailscaleHostname }}"
+      spec:
+        selector:
+          app: tiny-llm-cpu-demo
+        ports:
+          - name: http
+            port: 8080
+            targetPort: http
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: tiny-llm-cpu-demo
+        namespace: default
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: tiny-llm-cpu-demo
+        template:
+          metadata:
+            labels:
+              app: tiny-llm-cpu-demo
+          spec:
+            terminationGracePeriodSeconds: 20
+            containers:
+              - name: server
+                image: ghcr.io/ggml-org/llama.cpp:server
+                imagePullPolicy: IfNotPresent
+                args:
+                  - -hf
+                  - "{{ .Values.modelRef }}"
+                  - --host
+                  - 0.0.0.0
+                  - --port
+                  - "8080"
+                  - -c
+                  - "{{ .Values.contextSize }}"
+                  - -np
+                  - "1"
+                  - -t
+                  - "{{ .Values.cpuThreads }}"
+                  - -tb
+                  - "{{ .Values.cpuThreads }}"
+                env:
+                  - name: HUGGINGFACE_HUB_CACHE
+                    value: /models-cache/hub
+                ports:
+                  - name: http
+                    containerPort: 8080
+                resources:
+                  requests:
+                    cpu: "{{ .Values.llmCpuRequest }}"
+                    memory: "{{ .Values.llmMemoryRequest }}"
+                  limits:
+                    cpu: "{{ .Values.llmCpuLimit }}"
+                    memory: "{{ .Values.llmMemoryLimit }}"
+                startupProbe:
+                  httpGet:
+                    path: /health
+                    port: http
+                  periodSeconds: 10
+                  timeoutSeconds: 3
+                  failureThreshold: 90
+                readinessProbe:
+                  httpGet:
+                    path: /health
+                    port: http
+                  periodSeconds: 5
+                  timeoutSeconds: 3
+                  failureThreshold: 6
+                livenessProbe:
+                  httpGet:
+                    path: /health
+                    port: http
+                  periodSeconds: 20
+                  timeoutSeconds: 3
+                  failureThreshold: 3
+                volumeMounts:
+                  - name: model-cache
+                    mountPath: /models-cache
+            volumes:
+              - name: model-cache
+                emptyDir:
+                  sizeLimit: "{{ .Values.modelCacheSize }}"
+    accessPoint:
+      ingress: {}
+    spaceTemplate:
+      metadata: {}
+
+  parameters:
+    - variable: kubernetesVersion
+      label: Kubernetes Version
+      description: >
+        Control plane Kubernetes version for the standalone vCluster.
+      defaultValue: v1.34.7
+      options:
+        - v1.33.11
+        - v1.34.7
+        - v1.35.4
+
+    - variable: largeNodeCount
+      label: Large Node Count
+      description: >
+        Number of large private nodes reserved for the LLM workload.
+      defaultValue: "1"
+      options:
+        - "1"
+        - "2"
+
+    - variable: customerSelector
+      label: Customer Selector
+      description: >
+        Optional comma-separated customer list such as `customer-a` or
+        `customer-a,customer-b`. Leave empty to allow all customers.
+      defaultValue: ""
+
+    - variable: rackSelector
+      label: Rack Selector
+      description: >
+        Optional comma-separated rack list such as `rack-a` or
+        `rack-a,rack-b`. Leave empty to allow all racks.
+      defaultValue: ""
+
+    - variable: tailscaleHostname
+      label: Tailscale Hostname
+      description: >
+        First DNS label to use when the Tailscale Kubernetes Operator exposes
+        the LLM Service to your tailnet.
+      defaultValue: vmetal-llm
+
+    - variable: tailscaleProjectSecretName
+      label: Tailscale Project Secret
+      description: >
+        Name of the vCluster Platform Project Secret to sync into the created
+        vCluster as `tailscale/operator-oauth`. Populate that Project Secret
+        with the Tailscale operator OAuth values before installing the
+        operator.
+      defaultValue: tailscale-operator-oauth
+
+    - variable: modelRef
+      label: Model Ref
+      description: >
+        Hugging Face GGUF reference passed to llama.cpp with `-hf`.
+      defaultValue: ggml-org/gemma-3-1b-it-GGUF:Q4_K_M
+
+    - variable: contextSize
+      label: Context Size
+      description: >
+        Token context window passed to llama.cpp.
+      defaultValue: "1024"
+      options:
+        - "1024"
+        - "2048"
+
+    - variable: cpuThreads
+      label: CPU Threads
+      description: >
+        llama.cpp worker thread count. Keep this aligned with the large node
+        CPU budget.
+      defaultValue: "4"
+      options:
+        - "2"
+        - "4"
+
+    - variable: llmCpuRequest
+      label: LLM CPU Request
+      defaultValue: "3500m"
+      options:
+        - "2500m"
+        - "3000m"
+        - "3500m"
+
+    - variable: llmCpuLimit
+      label: LLM CPU Limit
+      defaultValue: "3500m"
+      options:
+        - "2500m"
+        - "3000m"
+        - "3500m"
+
+    - variable: llmMemoryRequest
+      label: LLM Memory Request
+      defaultValue: 6Gi
+      options:
+        - 5Gi
+        - 5500Mi
+        - 6Gi
+
+    - variable: llmMemoryLimit
+      label: LLM Memory Limit
+      defaultValue: 6Gi
+      options:
+        - 5Gi
+        - 5500Mi
+        - 6Gi
+
+    - variable: modelCacheSize
+      label: Model Cache Size
+      description: >
+        emptyDir size limit for the Hugging Face cache inside the vCluster.
+      defaultValue: 4Gi
+      options:
+        - 2Gi
+        - 4Gi
+        - 6Gi
