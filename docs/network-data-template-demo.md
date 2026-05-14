@@ -31,6 +31,39 @@ The working ownership split in this repo is:
 - `network-data-template-secret`
   - configures only the LAN NIC in the installed node OS
 
+```mermaid
+sequenceDiagram
+    participant User
+    participant Platform as Loft / vCluster Platform
+    participant NP as Metal3 NodeProvider
+    participant BMH as BareMetalHost
+    participant DHCP as vMetal DHCP Proxy
+    participant Ironic
+    participant Host as Bare Metal Host
+    participant VCluster as Tenant Cluster
+
+    User->>Platform: Request a new node
+    Platform->>NP: Provision node for NodeClaim
+    NP->>BMH: Select matching available host
+    NP->>NP: Render networkData from provider template + BMH facts
+    NP->>BMH: Set image, userData, and spec.networkData
+
+    Ironic->>Host: Power on and start PXE boot
+    Host->>DHCP: DHCP request on provisioning NIC
+    DHCP->>Host: Provisioning IP + PXE boot info
+    Host->>Ironic: Boot installer and download OS image
+
+    Ironic->>Host: Install OS to disk
+    Host->>Host: Reboot into installed OS
+    Host->>Host: Apply rendered networkData
+    Note over Host: Post-boot OS config brings up LAN NIC
+
+    Host->>VCluster: Run join flow / kubelet registers
+    VCluster->>Platform: Node becomes available
+    Platform->>User: Node ready for scheduling
+
+```
+
 In other words:
 
 - PXE, Ironic, and image delivery use the provisioning NIC
@@ -67,6 +100,20 @@ You can see that in:
 
 - [manifests/platform/node-provider.yaml](../manifests/platform/node-provider.yaml)
 - [manifests/platform/node-provider-customer-topology.yaml](../manifests/platform/node-provider-customer-topology.yaml)
+
+## Where the Secret lives
+
+The network-data template Secret is not created on the provisioned worker node
+cluster and not on the Metal3 guest cluster. It must be deployed on the
+vCluster Platform control plane cluster in the `vcluster-platform` namespace,
+because that is where the `NodeProvider` resolves:
+
+```yaml
+vcluster.com/network-data-template-secret: vcluster-platform/vmetal-dual-nic-network-template
+```
+
+In this demo, the control plane cluster is the cluster where the `NodeProvider`
+resource itself lives and where vCluster Platform reconciles node claims.
 
 ## Network template Secret
 
